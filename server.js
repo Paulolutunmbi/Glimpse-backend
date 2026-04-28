@@ -9,9 +9,26 @@ dotenv.config();
 
 const app = express();
 
+const allowedOrigins = (process.env.CLIENT_ORIGINS || '')
+  .split(',')
+  .map((v) => v.trim())
+  .filter(Boolean);
+
+const basePort = Number(process.env.CLIENT_ORIGIN_BASE_PORT);
+
 app.use(
   cors({
-    origin: 'http://localhost:5173',
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true); // allow non-browser tools
+      if (allowedOrigins.includes(origin)) return cb(null, true);
+
+      const match = /^http:\/\/localhost:(\d+)$/.exec(origin);
+      if (match && Number.isFinite(basePort) && Number(match[1]) >= basePort) {
+        return cb(null, true);
+      }
+
+      return cb(new Error('Not allowed by CORS'));
+    },
     credentials: true,
   })
 );
