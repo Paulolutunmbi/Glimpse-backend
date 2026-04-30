@@ -7,6 +7,7 @@ const { Server } = require('socket.io');
 
 const postRoutes = require('./routes/postRoutes');
 const commentRoutes = require('./routes/commentRoutes');
+const authRoutes = require('./routes/authRoutes');
 
 dotenv.config();
 
@@ -46,6 +47,7 @@ mongoose
 
 app.use('/api/posts', postRoutes);
 app.use('/api/comments', commentRoutes);
+app.use('/api/auth', authRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 

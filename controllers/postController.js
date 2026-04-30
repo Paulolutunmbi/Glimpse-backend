@@ -25,12 +25,15 @@ const createPost = async (req, res) => {
   }
 };
 
-// PUT /api/posts/:id/like — toggle like using a stable guest identifier
+// PUT /api/posts/:id/like — toggle like for authenticated user
 const toggleLike = async (req, res) => {
   try {
     const { id } = req.params;
-    // Use a userId from body if provided, otherwise fall back to 'guest'
-    const userId = req.body?.userId || 'guest';
+    const userId = req.userId;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
 
     const post = await Post.findById(id);
     if (!post) return res.status(404).json({ error: 'Post not found' });
