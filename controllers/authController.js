@@ -110,7 +110,7 @@ const register = async (req, res) => {
     });
     const verificationCode = attachVerificationCode(user);
 
-    await user.save();
+    await user.save({ validateBeforeSave: false });
 
     try {
       await sendVerificationEmail({ to: user.email, code: verificationCode });
@@ -278,7 +278,7 @@ const forgotPassword = async (req, res) => {
     const rawToken = crypto.randomBytes(32).toString('hex');
     user.resetPasswordToken = hashValue(rawToken);
     user.resetPasswordExpires = new Date(Date.now() + RESET_TOKEN_TTL_MS);
-    await user.save();
+    await user.save({ validateBeforeSave: false });
 
     const resetBaseUrl =
       process.env.CLIENT_RESET_PASSWORD_URL || 'http://localhost:3000/reset-password';
@@ -289,7 +289,7 @@ const forgotPassword = async (req, res) => {
     } catch (err) {
       user.resetPasswordToken = undefined;
       user.resetPasswordExpires = undefined;
-      await user.save();
+      await user.save({ validateBeforeSave: false });
 
       return res.status(502).json({
         success: false,
@@ -299,6 +299,7 @@ const forgotPassword = async (req, res) => {
 
     return res.status(200).json(genericResponse);
   } catch (err) {
+    console.error('Forgot password error:', err);
     return res.status(500).json({ success: false, message: 'Failed to start password reset' });
   }
 };
@@ -333,13 +334,14 @@ const resetPassword = async (req, res) => {
     user.password = nextPassword;
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
-    await user.save();
+    await user.save({ validateBeforeSave: false });
 
     return res.status(200).json({
       success: true,
       message: 'Password reset successful. You can now log in.',
     });
   } catch (err) {
+    console.error('Reset password error:', err);
     return res.status(500).json({ success: false, message: 'Failed to reset password' });
   }
 };
