@@ -4,7 +4,7 @@ const { getPosts, createPost, toggleLike } = require('../controllers/postControl
 const auth = require('../middleware/auth');
 
 router.get('/', getPosts);
-router.post('/', createPost);
+router.post('/', auth, createPost);
 router.put('/:id/like', auth, toggleLike);
 
 module.exports = router;

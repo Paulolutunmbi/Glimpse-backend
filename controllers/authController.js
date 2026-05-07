@@ -18,8 +18,18 @@ const generateVerificationCode = () =>
 const sanitizeUser = (user) => ({
   id: user._id,
   name: user.name,
-  username: user.name,
+  username: user.username || user.name,
   email: user.email,
+  avatar: user.avatar,
+  bio: user.bio,
+  extraInfo: user.extraInfo,
+  preferences: user.preferences,
+  followers: user.followers,
+  following: user.following,
+  posts: user.posts,
+  savedPosts: user.savedPosts,
+  isFirstLogin: user.isFirstLogin,
+  profileCompleted: user.profileCompleted,
   isVerified: user.isVerified,
   createdAt: user.createdAt,
 });
@@ -104,6 +114,7 @@ const register = async (req, res) => {
 
     const user = new User({
       name: displayName,
+      username: displayName,
       email: normalizedEmail,
       password,
       isVerified: false,
@@ -245,12 +256,15 @@ const login = async (req, res) => {
 
     const token = createToken(user);
     const safeUser = sanitizeUser(user);
+    const shouldOnboard = user.isFirstLogin || !user.profileCompleted;
+    const redirectTo = shouldOnboard ? '/profile-setup' : '/profile';
 
     return res.status(200).json({
       success: true,
       message: 'Login successful',
       token,
-      data: { token, user: safeUser },
+      redirectTo,
+      data: { token, user: safeUser, redirectTo },
     });
   } catch (err) {
     return res.status(500).json({ success: false, message: 'Failed to login' });

@@ -1,4 +1,5 @@
 const Post = require('../models/Post');
+const User = require('../models/User');
 
 // GET /api/posts — latest first
 const getPosts = async (req, res) => {
@@ -13,12 +14,31 @@ const getPosts = async (req, res) => {
 // POST /api/posts — create a new post
 const createPost = async (req, res) => {
   try {
-    const { user, image, caption, comments } = req.body;
-    if (!user?.username || !user?.avatar || !image) {
-      return res.status(400).json({ error: 'user.username, user.avatar, and image are required' });
+    const { image, caption, comments } = req.body;
+    const author = req.user;
+
+    if (!author) {
+      return res.status(401).json({ error: 'Unauthorized' });
     }
-    const post = new Post({ user, image, caption, comments: comments || 0 });
+
+    if (!image) {
+      return res.status(400).json({ error: 'image is required' });
+    }
+
+    const post = new Post({
+      author: author._id,
+      user: {
+        username: author.username || author.name,
+        avatar: author.avatar || '',
+        location: author.extraInfo || '',
+      },
+      image,
+      caption,
+      comments: comments || 0,
+    });
+
     await post.save();
+    await User.findByIdAndUpdate(author._id, { $addToSet: { posts: post._id } });
     res.status(201).json(post);
   } catch (err) {
     res.status(500).json({ error: 'Failed to create post', details: err.message });
