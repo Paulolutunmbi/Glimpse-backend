@@ -15,24 +15,41 @@ const hashValue = (value) => crypto.createHash('sha256').update(value).digest('h
 const generateVerificationCode = () =>
   crypto.randomInt(100000, 1000000).toString();
 
-const sanitizeUser = (user) => ({
-  id: user._id,
-  name: user.name,
-  username: user.username || user.name,
-  email: user.email,
-  avatar: user.avatar,
-  bio: user.bio,
-  extraInfo: user.extraInfo,
-  preferences: user.preferences,
-  followers: user.followers,
-  following: user.following,
-  posts: user.posts,
-  savedPosts: user.savedPosts,
-  isFirstLogin: user.isFirstLogin,
-  profileCompleted: user.profileCompleted,
-  isVerified: user.isVerified,
-  createdAt: user.createdAt,
-});
+const sanitizeUser = (user) => {
+  const relations = {
+    followers:
+      user.relations?.followers?.length ? user.relations.followers : user.followers || [],
+    following:
+      user.relations?.following?.length ? user.relations.following : user.following || [],
+  };
+  const stats = {
+    postsCount: user.stats?.postsCount ?? user.posts?.length ?? 0,
+    followersCount: user.stats?.followersCount ?? relations.followers.length,
+    followingCount: user.stats?.followingCount ?? relations.following.length,
+  };
+  return {
+    id: user._id,
+    name: user.name,
+    fullName: user.fullName || user.name,
+    username: user.username || user.name,
+    email: user.email,
+    isFirstLogin: user.isFirstLogin,
+    profileCompleted: user.profileCompleted,
+    isVerified: user.isVerified,
+    createdAt: user.createdAt,
+    profile: {
+      avatar: user.profile?.avatar || user.profilePicture || user.avatar || '',
+      coverImage: user.profile?.coverImage || '',
+      bio: user.profile?.bio ?? user.bio ?? '',
+      extraInfo: user.profile?.extraInfo ?? user.extraInfo ?? '',
+      preferences:
+        user.profile?.preferences?.length ? user.profile.preferences : user.preferences || [],
+      joinedAt: user.profile?.joinedAt || user.createdAt,
+    },
+    stats,
+    relations,
+  };
+};
 
 const getJwtSecret = () => {
   const secret = process.env.JWT_SECRET;
@@ -85,8 +102,8 @@ const attachVerificationCode = (user) => {
 
 const register = async (req, res) => {
   try {
-    const { name, username, email, password } = req.body || {};
-    const displayName = String(name || username || '').trim();
+    const { name, fullName, username, email, password } = req.body || {};
+    const displayName = String(fullName || name || username || '').trim();
     const normalizedEmail = normalizeEmail(email);
 
     if (!displayName || !normalizedEmail || !password) {
@@ -114,6 +131,7 @@ const register = async (req, res) => {
 
     const user = new User({
       name: displayName,
+      fullName: displayName,
       username: displayName,
       email: normalizedEmail,
       password,
@@ -271,6 +289,21 @@ const login = async (req, res) => {
   }
 };
 
+const getMe = async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: { user: sanitizeUser(req.user) },
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Failed to fetch user' });
+  }
+};
+
 const forgotPassword = async (req, res) => {
   try {
     const normalizedEmail = normalizeEmail(req.body?.email);
@@ -367,4 +400,5 @@ module.exports = {
   resendVerificationCode,
   forgotPassword,
   resetPassword,
+  getMe,
 };

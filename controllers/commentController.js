@@ -1,11 +1,14 @@
 const Comment = require('../models/Comment');
 const User = require('../models/User');
+const Post = require('../models/Post');
+const { getIO } = require('../socket');
 
 const createComment = async (req, res) => {
   try {
     const { postId, text } = req.body || {};
+    const trimmedText = String(text || '').trim();
 
-    if (!postId || !text) {
+    if (!postId || !trimmedText) {
       return res.status(400).json({ error: 'postId and text are required' });
     }
 
@@ -13,19 +16,27 @@ const createComment = async (req, res) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const user = await User.findById(req.userId).select('username');
+    const user = await User.findById(req.userId).select('username avatar profilePicture');
     if (!user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
     const comment = new Comment({
       postId,
-      userId: req.userId,
+      userId: String(req.userId),
       username: user.username,
-      text,
+      avatar: user.profilePicture || user.avatar || '',
+      text: trimmedText,
     });
 
     await comment.save();
+    await Post.findByIdAndUpdate(postId, { $inc: { comments: 1 } }).catch(() => null);
+    try {
+      const io = getIO();
+      io.to(String(postId)).emit('comment:created', { comment });
+    } catch (err) {
+      console.error('Socket emit failed:', err.message);
+    }
     return res.status(201).json(comment);
   } catch (err) {
     return res.status(500).json({ error: 'Failed to create comment', details: err.message });
@@ -46,8 +57,9 @@ const updateComment = async (req, res) => {
   try {
     const { id } = req.params;
     const { text } = req.body || {};
+    const trimmedText = String(text || '').trim();
 
-    if (!text) {
+    if (!trimmedText) {
       return res.status(400).json({ error: 'text is required' });
     }
 
@@ -56,12 +68,19 @@ const updateComment = async (req, res) => {
       return res.status(404).json({ error: 'Comment not found' });
     }
 
-    if (req.userId !== comment.userId) {
+    if (String(req.userId) !== String(comment.userId)) {
       return res.status(403).json({ error: 'Unauthorized' });
     }
 
-    comment.text = text;
+    comment.text = trimmedText;
     await comment.save();
+
+    try {
+      const io = getIO();
+      io.to(String(comment.postId)).emit('comment:updated', { comment });
+    } catch (err) {
+      console.error('Socket emit failed:', err.message);
+    }
 
     return res.status(200).json({ success: true, data: comment });
   } catch (err) {
@@ -78,11 +97,21 @@ const deleteComment = async (req, res) => {
       return res.status(404).json({ error: 'Comment not found' });
     }
 
-    if (req.userId !== comment.userId) {
+    if (String(req.userId) !== String(comment.userId)) {
       return res.status(403).json({ error: 'Unauthorized' });
     }
 
     await comment.deleteOne();
+    await Post.findByIdAndUpdate(comment.postId, { $inc: { comments: -1 } }).catch(() => null);
+    try {
+      const io = getIO();
+      io.to(String(comment.postId)).emit('comment:deleted', {
+        commentId: String(comment._id),
+        postId: String(comment.postId),
+      });
+    } catch (err) {
+      console.error('Socket emit failed:', err.message);
+    }
     return res.status(200).json({ success: true, data: comment });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to delete comment', details: err.message });

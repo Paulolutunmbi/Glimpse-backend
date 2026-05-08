@@ -5,6 +5,7 @@ const commentSchema = new mongoose.Schema(
     postId: { type: mongoose.Schema.Types.ObjectId, required: true, ref: 'Post' },
     userId: { type: String, default: 'guest' },
     username: { type: String, default: 'Guest' },
+    avatar: { type: String, default: '' },
     text: { type: String, required: true, trim: true },
   },
   { timestamps: true }

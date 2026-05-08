@@ -3,7 +3,8 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const mongoose = require('mongoose');
 const http = require('http');
-const { Server } = require('socket.io');
+const { initSocket } = require('./socket');
+const { errorHandler, notFound } = require('./middleware/errorHandler');
 
 const postRoutes = require('./routes/postRoutes');
 const commentRoutes = require('./routes/commentRoutes');
@@ -21,17 +22,22 @@ const allowedOrigins = (process.env.CLIENT_ORIGINS || '')
 
 const basePort = Number(process.env.CLIENT_ORIGIN_BASE_PORT);
 
+const isOriginAllowed = (origin) => {
+  if (!origin) return true;
+  if (allowedOrigins.includes(origin)) return true;
+
+  const match = /^http:\/\/localhost:(\d+)$/.exec(origin);
+  if (match && Number.isFinite(basePort) && Number(match[1]) >= basePort) {
+    return true;
+  }
+
+  return false;
+};
+
 app.use(
   cors({
     origin: (origin, cb) => {
-      if (!origin) return cb(null, true); // allow non-browser tools
-      if (allowedOrigins.includes(origin)) return cb(null, true);
-
-      const match = /^http:\/\/localhost:(\d+)$/.exec(origin);
-      if (match && Number.isFinite(basePort) && Number(match[1]) >= basePort) {
-        return cb(null, true);
-      }
-
+      if (isOriginAllowed(origin)) return cb(null, true);
       return cb(new Error('Not allowed by CORS'));
     },
     credentials: true,
@@ -53,25 +59,18 @@ app.use('/api/user', userRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
-const server = http.createServer(app);
+app.use(notFound);
+app.use(errorHandler);
 
-const io = new Server(server, {
+const server = http.createServer(app);
+initSocket(server, {
   cors: {
-    origin: 'http://localhost:5173',
+    origin: (origin, cb) => {
+      if (isOriginAllowed(origin)) return cb(null, true);
+      return cb(new Error('Not allowed by CORS'));
+    },
     methods: ['GET', 'POST'],
   },
-});
-
-io.on('connection', (socket) => {
-  console.log('User connected:', socket.id);
-
-  socket.on('joinPost', (postId) => {
-    socket.join(postId);
-  });
-
-  socket.on('sendComment', (comment) => {
-    io.to(comment.postId).emit('newComment', comment);
-  });
 });
 
 const port = process.env.PORT || 5000;
