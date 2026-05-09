@@ -2,7 +2,6 @@ const crypto = require('crypto');
 const { getCloudinary } = require('../config/cloudinary');
 const User = require('../models/User');
 const sendEmail = require('../utils/sendEmail');
-const { getIO } = require('../socket');
 
 const RESET_TOKEN_TTL_MS = 15 * 60 * 1000;
 
@@ -11,97 +10,39 @@ const normalizePreferences = (prefs) =>
     ? prefs.map((value) => String(value || '').trim()).filter(Boolean)
     : [];
 
-const parseBoolean = (value) => {
-  if (typeof value === 'boolean') return value;
-  if (typeof value !== 'string') return undefined;
-  if (value === 'true') return true;
-  if (value === 'false') return false;
-  return undefined;
-};
-
-const buildProfile = (user) => ({
-  avatar: user.profile?.avatar || user.profilePicture || user.avatar || '',
-  coverImage: user.profile?.coverImage || '',
-  bio: user.profile?.bio ?? user.bio ?? '',
-  extraInfo: user.profile?.extraInfo ?? user.extraInfo ?? '',
-  preferences:
-    user.profile?.preferences?.length ? user.profile.preferences : user.preferences || [],
-  joinedAt: user.profile?.joinedAt || user.createdAt,
+const sanitizeUser = (user) => ({
+  id: user._id,
+  name: user.name,
+  fullName: user.fullName || user.name,
+  username: user.username || user.name,
+  email: user.email,
+  avatar: user.profilePicture || user.avatar,
+  profilePicture: user.profilePicture || user.avatar,
+  bio: user.bio,
+  extraInfo: user.extraInfo,
+  preferences: user.preferences,
+  followers: user.followers,
+  following: user.following,
+  posts: user.posts,
+  savedPosts: user.savedPosts,
+  isFirstLogin: user.isFirstLogin,
+  profileCompleted: user.profileCompleted,
+  isVerified: user.isVerified,
+  createdAt: user.createdAt,
 });
 
-const buildRelations = (user) => ({
-  followers:
-    user.relations?.followers?.length ? user.relations.followers : user.followers || [],
-  following:
-    user.relations?.following?.length ? user.relations.following : user.following || [],
+const buildProfilePayload = (user) => ({
+  user: sanitizeUser(user),
+  stats: {
+    posts: user.posts?.length || 0,
+    followers: user.followers?.length || 0,
+    following: user.following?.length || 0,
+  },
 });
 
-const buildStats = (user, relations) => ({
-  postsCount: user.stats?.postsCount ?? user.posts?.length ?? 0,
-  followersCount: user.stats?.followersCount ?? relations.followers.length,
-  followingCount: user.stats?.followingCount ?? relations.following.length,
-});
-
-const sanitizeUser = (user) => {
-  const relations = buildRelations(user);
-  const stats = buildStats(user, relations);
-  return {
-    id: user._id,
-    name: user.name,
-    fullName: user.fullName || user.name,
-    username: user.username || user.name,
-    email: user.email,
-    isFirstLogin: user.isFirstLogin,
-    profileCompleted: user.profileCompleted,
-    isVerified: user.isVerified,
-    createdAt: user.createdAt,
-    profile: buildProfile(user),
-    stats,
-    relations,
-  };
-};
-
-const buildProfilePayload = (user) => {
-  const relations = buildRelations(user);
-  const stats = buildStats(user, relations);
-  return {
-    user: sanitizeUser(user),
-    profile: buildProfile(user),
-    stats,
-    relations,
-    posts: user.posts || [],
-    savedPosts: user.savedPosts || [],
-  };
-};
-
-const emitProfileUpdated = (user) => {
+const getUserProfile = async (req, res) => {
   try {
-    const io = getIO();
-    io.emit('profileUpdated', {
-      userId: String(user._id),
-      profile: buildProfilePayload(user),
-    });
-  } catch (err) {
-    console.error('Socket emit failed:', err.message);
-  }
-};
-
-const getCurrentUser = async (req, res) => {
-  try {
-    if (!req.user) {
-      return res.status(401).json({ success: false, message: 'Unauthorized' });
-    }
-
-    return res.status(200).json({ success: true, data: { user: sanitizeUser(req.user) } });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: 'Failed to load profile' });
-  }
-};
-
-const getUserProfileById = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const user = await User.findById(id)
+    const user = await User.findById(req.userId)
       .populate('posts')
       .populate('savedPosts');
 
@@ -125,8 +66,6 @@ const updateProfile = async (req, res) => {
       preferences,
       profileCompleted,
       isFirstLogin,
-      avatar,
-      coverImage,
     } = req.body || {};
 
     const updates = {};
@@ -152,74 +91,23 @@ const updateProfile = async (req, res) => {
     }
 
     if (typeof bio === 'string') {
-      const trimmedBio = bio.trim();
-      updates.bio = trimmedBio;
-      updates['profile.bio'] = trimmedBio;
+      updates.bio = bio.trim();
     }
 
     if (typeof extraInfo === 'string') {
-      const trimmedExtraInfo = extraInfo.trim();
-      updates.extraInfo = trimmedExtraInfo;
-      updates['profile.extraInfo'] = trimmedExtraInfo;
+      updates.extraInfo = extraInfo.trim();
     }
 
-    let normalizedPreferences = null;
     if (Array.isArray(preferences)) {
-      normalizedPreferences = normalizePreferences(preferences);
-    } else if (typeof preferences === 'string' && preferences.trim()) {
-      try {
-        const parsed = JSON.parse(preferences);
-        if (Array.isArray(parsed)) {
-          normalizedPreferences = normalizePreferences(parsed);
-        }
-      } catch (err) {
-        normalizedPreferences = normalizePreferences(preferences.split(','));
-      }
+      updates.preferences = normalizePreferences(preferences);
     }
 
-    if (normalizedPreferences) {
-      updates.preferences = normalizedPreferences;
-      updates['profile.preferences'] = normalizedPreferences;
+    if (typeof profileCompleted === 'boolean') {
+      updates.profileCompleted = profileCompleted;
     }
 
-    const parsedProfileCompleted = parseBoolean(profileCompleted);
-    if (parsedProfileCompleted !== undefined) {
-      updates.profileCompleted = parsedProfileCompleted;
-    }
-
-    const parsedIsFirstLogin = parseBoolean(isFirstLogin);
-    if (parsedIsFirstLogin !== undefined) {
-      updates.isFirstLogin = parsedIsFirstLogin;
-    }
-
-    const avatarFile =
-      req.file ||
-      req.files?.profilePicture?.[0] ||
-      req.files?.avatar?.[0] ||
-      req.files?.image?.[0] ||
-      null;
-    const coverFile = req.files?.coverImage?.[0] || null;
-
-    if (avatarFile) {
-      const avatarUrl = avatarFile.path || avatarFile.secure_url || '';
-      updates.avatar = avatarUrl;
-      updates.profilePicture = avatarUrl;
-      updates['profile.avatar'] = avatarUrl;
-    }
-
-    if (coverFile) {
-      const coverUrl = coverFile.path || coverFile.secure_url || '';
-      updates['profile.coverImage'] = coverUrl;
-    }
-
-    if (typeof avatar === 'string' && avatar.trim()) {
-      updates.avatar = avatar.trim();
-      updates.profilePicture = avatar.trim();
-      updates['profile.avatar'] = avatar.trim();
-    }
-
-    if (typeof coverImage === 'string' && coverImage.trim()) {
-      updates['profile.coverImage'] = coverImage.trim();
+    if (typeof isFirstLogin === 'boolean') {
+      updates.isFirstLogin = isFirstLogin;
     }
 
     const user = await User.findByIdAndUpdate(req.userId, updates, {
@@ -233,76 +121,10 @@ const updateProfile = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    emitProfileUpdated(user);
     return res.status(200).json({ success: true, data: buildProfilePayload(user) });
   } catch (err) {
     return res.status(500).json({ success: false, message: 'Failed to update profile' });
   }
-};
-
-const getSuggestedCreators = async (req, res) => {
-  try {
-    const currentUserId = String(req.userId || '');
-    const currentUser = req.user || null;
-    const following = new Set(
-      (currentUser?.relations?.following || currentUser?.following || []).map((id) => String(id))
-    );
-
-    const users = await User.find({
-      _id: { $ne: currentUserId },
-      profileCompleted: true,
-    })
-      .sort({ 'stats.followersCount': -1, createdAt: -1 })
-      .limit(12);
-
-    const suggestions = users
-      .filter((user) => !following.has(String(user._id)))
-      .slice(0, 6)
-      .map((user) => ({
-        id: user._id,
-        username: user.username || user.name,
-        name: user.fullName || user.name || user.username,
-        specialty: user.profile?.bio || user.bio || user.profile?.extraInfo || 'Creator',
-        avatar: user.profile?.avatar || user.profilePicture || user.avatar || '',
-        followersCount: user.stats?.followersCount || 0,
-        isFollowing: false,
-      }));
-
-    return res.status(200).json(suggestions);
-  } catch (err) {
-    return res.status(500).json({ success: false, message: 'Failed to load suggestions' });
-  }
-};
-
-const getPublicCreators = async (req, res) => {
-  try {
-    const users = await User.find({ profileCompleted: true })
-      .sort({ 'stats.followersCount': -1, createdAt: -1 })
-      .limit(6);
-
-    return res.status(200).json(
-      users.map((user) => ({
-        id: user._id,
-        username: user.username || user.name,
-        name: user.fullName || user.name || user.username,
-        specialty: user.profile?.bio || user.bio || user.profile?.extraInfo || 'Creator',
-        avatar: user.profile?.avatar || user.profilePicture || user.avatar || '',
-        followersCount: user.stats?.followersCount || 0,
-      }))
-    );
-  } catch (err) {
-    return res.status(500).json({ success: false, message: 'Failed to load creators' });
-  }
-};
-
-const setupProfile = async (req, res) => {
-  req.body = {
-    ...(req.body || {}),
-    isFirstLogin: false,
-    profileCompleted: true,
-  };
-
-  return updateProfile(req, res);
 };
 
 const MAX_BASE64_SIZE_BYTES = 5 * 1024 * 1024;
@@ -391,7 +213,6 @@ const uploadAvatar = async (req, res) => {
         avatar: finalUrl,
         profilePicture: finalUrl,
         profilePicturePublicId: publicId || existingUser.profilePicturePublicId || '',
-        'profile.avatar': finalUrl,
       },
       { new: true, runValidators: true }
     )
@@ -402,7 +223,6 @@ const uploadAvatar = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    emitProfileUpdated(user);
     return res.status(200).json({ success: true, data: buildProfilePayload(user) });
   } catch (err) {
     return res.status(500).json({ success: false, message: 'Failed to upload avatar' });
@@ -415,7 +235,7 @@ const updatePreferences = async (req, res) => {
 
     const user = await User.findByIdAndUpdate(
       req.userId,
-      { preferences, 'profile.preferences': preferences },
+      { preferences },
       { new: true, runValidators: true }
     )
       .populate('posts')
@@ -425,95 +245,9 @@ const updatePreferences = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    emitProfileUpdated(user);
     return res.status(200).json({ success: true, data: buildProfilePayload(user) });
   } catch (err) {
     return res.status(500).json({ success: false, message: 'Failed to update preferences' });
-  }
-};
-
-const syncRelationStats = async (userId) => {
-  const user = await User.findById(userId);
-  if (!user) return null;
-
-  const followers = user.relations?.followers?.length
-    ? user.relations.followers
-    : user.followers || [];
-  const following = user.relations?.following?.length
-    ? user.relations.following
-    : user.following || [];
-
-  user.relations.followers = followers;
-  user.relations.following = following;
-  user.followers = followers;
-  user.following = following;
-  user.stats.followersCount = followers.length;
-  user.stats.followingCount = following.length;
-  await user.save({ validateBeforeSave: false });
-
-  return User.findById(userId).populate('posts').populate('savedPosts');
-};
-
-const toggleFollow = async (req, res) => {
-  try {
-    const currentUserId = req.userId;
-    const targetUserId = req.params.id;
-
-    if (!targetUserId || String(currentUserId) === String(targetUserId)) {
-      return res.status(400).json({ success: false, message: 'Invalid user to follow' });
-    }
-
-    const currentUser = await User.findById(currentUserId);
-    const isFollowing = currentUser?.relations?.following?.some(
-      (id) => String(id) === String(targetUserId)
-    );
-
-    if (isFollowing) {
-      await User.findByIdAndUpdate(currentUserId, {
-        $pull: { 'relations.following': targetUserId, following: targetUserId },
-      });
-      await User.findByIdAndUpdate(targetUserId, {
-        $pull: { 'relations.followers': currentUserId, followers: currentUserId },
-      });
-    } else {
-      await User.findByIdAndUpdate(currentUserId, {
-        $addToSet: { 'relations.following': targetUserId, following: targetUserId },
-      });
-      await User.findByIdAndUpdate(targetUserId, {
-        $addToSet: { 'relations.followers': currentUserId, followers: currentUserId },
-      });
-    }
-
-    const updatedCurrentUser = await syncRelationStats(currentUserId);
-    const updatedTargetUser = await syncRelationStats(targetUserId);
-
-    if (!updatedCurrentUser || !updatedTargetUser) {
-      return res.status(404).json({ success: false, message: 'User not found' });
-    }
-
-    try {
-      const io = getIO();
-      io.emit('followUpdated', {
-        userId: String(currentUserId),
-        targetUserId: String(targetUserId),
-        isFollowing: !isFollowing,
-      });
-    } catch (err) {
-      console.error('Socket emit failed:', err.message);
-    }
-    emitProfileUpdated(updatedCurrentUser);
-    emitProfileUpdated(updatedTargetUser);
-
-    return res.status(200).json({
-      success: true,
-      data: {
-        user: buildProfilePayload(updatedCurrentUser),
-        target: buildProfilePayload(updatedTargetUser),
-        isFollowing: !isFollowing,
-      },
-    });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: 'Failed to update follow state' });
   }
 };
 
@@ -570,14 +304,9 @@ const sendPasswordResetEmail = async (req, res) => {
 };
 
 module.exports = {
-  getCurrentUser,
-  getUserProfileById,
-  getSuggestedCreators,
-  getPublicCreators,
+  getUserProfile,
   updateProfile,
-  setupProfile,
   uploadAvatar,
   updatePreferences,
-  toggleFollow,
   sendPasswordResetEmail,
 };

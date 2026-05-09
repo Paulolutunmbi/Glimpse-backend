@@ -10,16 +10,11 @@ const buildUpload = (req) => {
 
   const storage = new CloudinaryStorage({
     cloudinary,
-    params: (reqFile, file) => {
-      const isCover = file.fieldname === 'coverImage';
-      return {
-        folder: isCover ? 'glimpse/cover-images' : 'glimpse/profile-pictures',
-        resource_type: 'image',
-        public_id: `user-${req.userId}-${Date.now()}`,
-        transformation: isCover
-          ? [{ width: 1600, height: 900, crop: 'fill' }]
-          : [{ width: 512, height: 512, crop: 'fill', gravity: 'face' }],
-      };
+    params: {
+      folder: 'glimpse/profile-pictures',
+      resource_type: 'image',
+      public_id: `user-${req.userId}-${Date.now()}`,
+      transformation: [{ width: 512, height: 512, crop: 'fill', gravity: 'face' }],
     },
   });
 
@@ -50,7 +45,6 @@ const uploadProfilePicture = (req, res, next) => {
     { name: 'profilePicture', maxCount: 1 },
     { name: 'avatar', maxCount: 1 },
     { name: 'image', maxCount: 1 },
-    { name: 'coverImage', maxCount: 1 },
   ])(req, res, (err) => {
     if (err) {
       return res.status(400).json({ success: false, message: err.message });
