@@ -1,17 +1,20 @@
 const multer = require('multer');
 
-const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
-const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_PROFILE_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_POST_MEDIA_BYTES = 50 * 1024 * 1024;
+const MAX_POST_IMAGE_BYTES = 10 * 1024 * 1024;
+const ALLOWED_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const ALLOWED_VIDEO_MIME_TYPES = ['video/mp4', 'video/quicktime', 'video/webm'];
 
 const memoryStorage = multer.memoryStorage();
 
-const createUploader = () =>
+const createUploader = ({ maxFileSizeBytes, allowedMimeTypes }) =>
   multer({
     storage: memoryStorage,
-    limits: { fileSize: MAX_FILE_SIZE_BYTES },
+    limits: { fileSize: maxFileSizeBytes },
     fileFilter: (reqFile, file, cb) => {
-      if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
-        return cb(new Error('Only JPG, PNG, or WEBP images are allowed'));
+      if (!allowedMimeTypes.includes(file.mimetype)) {
+        return cb(new Error('Unsupported file type'));
       }
       return cb(null, true);
     },
@@ -37,24 +40,46 @@ const runUpload = (uploader, fields) => (req, res, next) =>
     return next();
   });
 
-const uploadProfilePicture = runUpload(createUploader(), [
+const uploadProfilePicture = runUpload(
+  createUploader({
+    maxFileSizeBytes: MAX_PROFILE_IMAGE_BYTES,
+    allowedMimeTypes: ALLOWED_IMAGE_MIME_TYPES,
+  }),
+  [
   { name: 'profilePicture', maxCount: 1 },
   { name: 'avatar', maxCount: 1 },
   { name: 'image', maxCount: 1 },
   { name: 'coverImage', maxCount: 1 },
-]);
+  ]
+);
 
-const uploadCoverImage = runUpload(createUploader(), [{ name: 'coverImage', maxCount: 1 }]);
+const uploadCoverImage = runUpload(
+  createUploader({
+    maxFileSizeBytes: MAX_PROFILE_IMAGE_BYTES,
+    allowedMimeTypes: ALLOWED_IMAGE_MIME_TYPES,
+  }),
+  [{ name: 'coverImage', maxCount: 1 }]
+);
 
-const uploadPostMedia = runUpload(createUploader(), [
-  { name: 'image', maxCount: 1 },
-  { name: 'media', maxCount: 5 },
-]);
+const uploadPostMedia = runUpload(
+  createUploader({
+    maxFileSizeBytes: MAX_POST_MEDIA_BYTES,
+    allowedMimeTypes: [...ALLOWED_IMAGE_MIME_TYPES, ...ALLOWED_VIDEO_MIME_TYPES],
+  }),
+  [
+    { name: 'image', maxCount: 1 },
+    { name: 'media', maxCount: 10 },
+    { name: 'video', maxCount: 1 },
+  ]
+);
 
 module.exports = {
   uploadProfilePicture,
   uploadCoverImage,
   uploadPostMedia,
-  MAX_FILE_SIZE_BYTES,
-  ALLOWED_MIME_TYPES,
+  MAX_PROFILE_IMAGE_BYTES,
+  MAX_POST_MEDIA_BYTES,
+  MAX_POST_IMAGE_BYTES,
+  ALLOWED_IMAGE_MIME_TYPES,
+  ALLOWED_VIDEO_MIME_TYPES,
 };

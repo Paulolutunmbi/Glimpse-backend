@@ -36,6 +36,17 @@ const buildStats = (user, relations) => ({
   savedPostsCount: user.stats?.savedPostsCount ?? user.savedPosts?.length ?? 0,
 });
 
+const computeTrendingScore = (post) => {
+  const likes = post.likes?.length || 0;
+  const comments = post.comments || 0;
+  const shares = post.shareCount || post.shares || 0;
+  const saves = post.saveCount || 0;
+  const views = post.viewCount || 0;
+  const base = likes * 2 + comments * 3 + shares * 4 + saves * 3 + views * 0.1;
+  const hours = Math.max(1, (Date.now() - new Date(post.createdAt).getTime()) / 36e5);
+  return Number((base / Math.pow(hours + 2, 1.3)).toFixed(4));
+};
+
 const calculateProfileCompletion = (user) => {
   const profile = buildProfile(user);
   const checks = [
@@ -626,6 +637,18 @@ const savePost = async (req, res) => {
       $addToSet: { savedPosts: id },
       $inc: { 'stats.savedPostsCount': 1 },
     });
+
+    post.saveCount = (post.saveCount || 0) + 1;
+    post.trendingScore = computeTrendingScore(post);
+    post.scoreUpdatedAt = new Date();
+    await post.save();
+
+    try {
+      const io = getIO();
+      io.emit('postSaved', { postId: String(id), saveCount: post.saveCount });
+    } catch (err) {
+      console.error('Socket emit failed:', err.message);
+    }
     return res.status(200).json({ success: true });
   } catch (err) {
     return res.status(500).json({ success: false, message: 'Failed to save post' });
@@ -645,6 +668,22 @@ const unsavePost = async (req, res) => {
       $pull: { savedPosts: id },
       $inc: { 'stats.savedPostsCount': hasSaved ? -1 : 0 },
     });
+
+    if (hasSaved) {
+      const post = await Post.findById(id);
+      if (post) {
+        post.saveCount = Math.max(0, (post.saveCount || 0) - 1);
+        post.trendingScore = computeTrendingScore(post);
+        post.scoreUpdatedAt = new Date();
+        await post.save();
+        try {
+          const io = getIO();
+          io.emit('postSaved', { postId: String(id), saveCount: post.saveCount });
+        } catch (err) {
+          console.error('Socket emit failed:', err.message);
+        }
+      }
+    }
     return res.status(200).json({ success: true });
   } catch (err) {
     return res.status(500).json({ success: false, message: 'Failed to unsave post' });
@@ -663,6 +702,58 @@ const getProfileStats = async (req, res) => {
     return res.status(200).json({ success: true, data: { stats } });
   } catch (err) {
     return res.status(500).json({ success: false, message: 'Failed to load stats' });
+  }
+};
+
+const parseCursor = (cursor) => {
+  if (!cursor) return null;
+  const parts = String(cursor).split('|');
+  if (parts.length < 2) return null;
+  return {
+    createdAt: new Date(parts[0]),
+    id: parts[1],
+  };
+};
+
+const buildSavedCursorQuery = (cursorData) => {
+  if (!cursorData?.createdAt) return {};
+  return {
+    $or: [
+      { createdAt: { $lt: cursorData.createdAt } },
+      { createdAt: cursorData.createdAt, _id: { $lt: cursorData.id } },
+    ],
+  };
+};
+
+const getSavedMoments = async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 10, 25);
+    const cursorData = parseCursor(req.query.cursor);
+
+    const user = await User.findById(req.userId).select('savedPosts');
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const savedIds = user.savedPosts || [];
+    if (savedIds.length === 0) {
+      return res.status(200).json({ data: [], nextCursor: null, hasMore: false });
+    }
+
+    const cursorQuery = buildSavedCursorQuery(cursorData);
+    const posts = await Post.find({ _id: { $in: savedIds }, ...cursorQuery })
+      .sort({ createdAt: -1, _id: -1 })
+      .limit(limit + 1);
+
+    const hasMore = posts.length > limit;
+    const sliced = hasMore ? posts.slice(0, limit) : posts;
+    const nextCursor = hasMore
+      ? `${sliced[sliced.length - 1].createdAt.toISOString()}|${sliced[sliced.length - 1]._id}`
+      : null;
+
+    return res.status(200).json({ data: sliced, nextCursor, hasMore });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Failed to load saved moments' });
   }
 };
 
@@ -731,4 +822,5 @@ module.exports = {
   savePost,
   unsavePost,
   getProfileStats,
+  getSavedMoments,
 };

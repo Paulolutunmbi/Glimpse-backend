@@ -10,6 +10,7 @@ const postRoutes = require('./routes/postRoutes');
 const commentRoutes = require('./routes/commentRoutes');
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
+const discoveryRoutes = require('./routes/discoveryRoutes');
 
 dotenv.config();
 
@@ -56,6 +57,7 @@ app.use('/api/posts', postRoutes);
 app.use('/api/comments', commentRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
+app.use('/api/discovery', discoveryRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 

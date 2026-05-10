@@ -1,11 +1,23 @@
 const express = require('express');
 const router = express.Router();
-const { getPosts, createPost, toggleLike, deletePost } = require('../controllers/postController');
+const {
+	getPosts,
+	getFeed,
+	createPost,
+	toggleLike,
+	trackView,
+	sharePost,
+	deletePost,
+} = require('../controllers/postController');
 const auth = require('../middleware/auth');
+const { uploadPostMedia } = require('../middleware/upload');
 
 router.get('/', getPosts);
-router.post('/', auth, createPost);
+router.get('/feed', auth, getFeed);
+router.post('/', auth, uploadPostMedia, createPost);
 router.put('/:id/like', auth, toggleLike);
+router.post('/:id/view', auth, trackView);
+router.post('/:id/share', auth, sharePost);
 router.delete('/:id', auth, deletePost);
 
 module.exports = router;

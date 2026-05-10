@@ -14,6 +14,7 @@ const {
   savePost,
   unsavePost,
   getProfileStats,
+  getSavedMoments,
 } = require('../controllers/userController');
 const {
   getSettings,
@@ -39,6 +40,7 @@ router.post('/follow/:id', auth, followUser);
 router.post('/unfollow/:id', auth, unfollowUser);
 router.post('/saved/:id', auth, savePost);
 router.delete('/saved/:id', auth, unsavePost);
+router.get('/saved', auth, getSavedMoments);
 router.post('/upload-avatar', auth, uploadProfilePicture, uploadAvatar);
 router.post('/upload-profile-picture', auth, uploadProfilePicture, uploadAvatar);
 router.post('/upload-cover-image', auth, uploadCoverImage, uploadCoverImageController);
