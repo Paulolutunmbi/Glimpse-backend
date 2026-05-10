@@ -1,10 +1,16 @@
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
-const sendEmail = require('../utils/sendEmail');
+const {
+  sendVerificationEmail,
+  sendPasswordResetEmail,
+  sendPasswordChangedEmail,
+  sendWelcomeEmail,
+} = require('../utils/email/emailService');
 
 const VERIFICATION_CODE_TTL_MS = 10 * 60 * 1000;
 const RESET_TOKEN_TTL_MS = 15 * 60 * 1000;
+const MAX_ACTIVE_SESSIONS = 20;
 
 const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
@@ -60,38 +66,45 @@ const getJwtSecret = () => {
   return secret;
 };
 
-const createToken = (user) =>
-  jwt.sign({ userId: user._id }, getJwtSecret(), { expiresIn: process.env.JWT_EXPIRES_IN || '7d' });
+const createSessionId = () => crypto.randomBytes(32).toString('hex');
 
-const sendVerificationEmail = async ({ to, code }) => {
-  await sendEmail({
-    to,
-    subject: 'Verify your Glimpse email',
-    text: `Your Glimpse verification code is ${code}. It expires in 10 minutes.`,
-    html: `
-      <div style="font-family:Arial,sans-serif;line-height:1.6;color:#1f1f1f">
-        <h2>Verify your Glimpse email</h2>
-        <p>Your verification code is:</p>
-        <p style="font-size:28px;font-weight:700;letter-spacing:6px">${code}</p>
-        <p>This code expires in 10 minutes.</p>
-      </div>
-    `,
-  });
-};
+const getRequestIp = (req) =>
+  String(req.headers?.['x-forwarded-for'] || req.ip || req.socket?.remoteAddress || '')
+    .split(',')[0]
+    .trim();
 
-const sendPasswordResetEmail = async ({ to, resetUrl }) => {
-  await sendEmail({
-    to,
-    subject: 'Reset your Glimpse password',
-    text: `Use this link to reset your password. It expires in 15 minutes: ${resetUrl}`,
-    html: `
-      <div style="font-family:Arial,sans-serif;line-height:1.6;color:#1f1f1f">
-        <h2>Reset your password</h2>
-        <p>This link expires in 15 minutes.</p>
-        <p><a href="${resetUrl}" style="color:#ff5a5f">Reset password</a></p>
-      </div>
-    `,
+const createToken = (user, sessionId) =>
+  jwt.sign({ userId: user._id, sessionId }, getJwtSecret(), {
+    expiresIn: process.env.JWT_EXPIRES_IN || '7d',
   });
+
+const trackLoginSession = async (user, req, sessionId) => {
+  if (!user.settings) user.settings = {};
+  if (!user.settings.security) user.settings.security = {};
+
+  const session = {
+    sessionId,
+    userAgent: String(req.headers?.['user-agent'] || '').slice(0, 300),
+    ip: getRequestIp(req),
+    createdAt: new Date(),
+    lastActiveAt: new Date(),
+  };
+
+  const existingSessions = user.settings?.security?.activeSessions || [];
+  user.settings.security.activeSessions = [
+    session,
+    ...existingSessions.filter((item) => item?.sessionId !== sessionId),
+  ].slice(0, MAX_ACTIVE_SESSIONS);
+  user.settings.security.loginHistory = [
+    {
+      userAgent: session.userAgent,
+      ip: session.ip,
+      createdAt: session.createdAt,
+    },
+    ...(user.settings?.security?.loginHistory || []),
+  ].slice(0, 20);
+
+  await user.save({ validateBeforeSave: false });
 };
 
 const attachVerificationCode = (user) => {
@@ -143,7 +156,7 @@ const register = async (req, res) => {
     await user.save({ validateBeforeSave: false });
 
     try {
-      await sendVerificationEmail({ to: user.email, code: verificationCode });
+      await sendVerificationEmail(user.email, { code: verificationCode, name: user.name });
     } catch (err) {
       await User.findByIdAndDelete(user._id);
       return res.status(502).json({
@@ -206,6 +219,10 @@ const verifyEmail = async (req, res) => {
     user.verificationCodeExpires = undefined;
     await user.save();
 
+    sendWelcomeEmail(user.email, { name: user.name }).catch((err) => {
+      console.error('Failed to send welcome email:', err.message);
+    });
+
     return res.status(200).json({
       success: true,
       message: 'Email verified successfully',
@@ -239,7 +256,7 @@ const resendVerificationCode = async (req, res) => {
 
     const verificationCode = attachVerificationCode(user);
     await user.save();
-    await sendVerificationEmail({ to: user.email, code: verificationCode });
+    await sendVerificationEmail(user.email, { code: verificationCode, name: user.name });
 
     return res.status(200).json({
       success: true,
@@ -273,7 +290,10 @@ const login = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Please verify your email first' });
     }
 
-    const token = createToken(user);
+    const sessionId = createSessionId();
+    await trackLoginSession(user, req, sessionId);
+
+    const token = createToken(user, sessionId);
     const safeUser = sanitizeUser(user);
     const shouldOnboard = user.isFirstLogin || !user.profileCompleted;
     const redirectTo = shouldOnboard ? '/profile-setup' : '/profile';
@@ -333,7 +353,7 @@ const forgotPassword = async (req, res) => {
     const resetUrl = `${resetBaseUrl}?token=${rawToken}`;
 
     try {
-      await sendPasswordResetEmail({ to: user.email, resetUrl });
+      await sendPasswordResetEmail(user.email, { resetUrl, name: user.name });
     } catch (err) {
       user.resetPasswordToken = undefined;
       user.resetPasswordExpires = undefined;
@@ -383,6 +403,10 @@ const resetPassword = async (req, res) => {
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
     await user.save({ validateBeforeSave: false });
+
+    sendPasswordChangedEmail(user.email, { name: user.name }).catch((err) => {
+      console.error('Failed to send password changed email:', err.message);
+    });
 
     return res.status(200).json({
       success: true,

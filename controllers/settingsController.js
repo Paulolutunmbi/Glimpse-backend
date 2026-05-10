@@ -55,14 +55,6 @@ const buildSettingsUpdate = (payload = {}) => {
   const compactMode = pickBoolean(appearance.compactMode);
   if (compactMode !== undefined) updates['settings.appearance.compactMode'] = compactMode;
 
-  if (Array.isArray(security.activeSessions)) {
-    updates['settings.security.activeSessions'] = security.activeSessions;
-  }
-
-  if (Array.isArray(security.loginHistory)) {
-    updates['settings.security.loginHistory'] = security.loginHistory;
-  }
-
   const twoFactorEnabled = pickBoolean(security.twoFactorEnabled);
   if (twoFactorEnabled !== undefined) updates['settings.security.twoFactorEnabled'] = twoFactorEnabled;
 
@@ -131,22 +123,51 @@ const updateAppearance = async (req, res) => {
 
 const logoutOtherSessions = async (req, res) => {
   try {
-    const { currentSessionId } = req.body || {};
+    if (!req.user || !req.userId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const currentSessionId = req.sessionId;
+    if (!currentSessionId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
     const user = await User.findById(req.userId).select('settings.security.activeSessions');
 
     if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
 
     const sessions = user.settings?.security?.activeSessions || [];
-    const nextSessions = currentSessionId
-      ? sessions.filter((session) => session.sessionId === currentSessionId)
-      : [];
+    const currentSession =
+      sessions.find((session) => session?.sessionId === currentSessionId) || {
+        sessionId: currentSessionId,
+        userAgent: String(req.headers?.['user-agent'] || '').slice(0, 300),
+        ip: String(req.headers?.['x-forwarded-for'] || req.ip || req.socket?.remoteAddress || '')
+          .split(',')[0]
+          .trim(),
+        createdAt: new Date(),
+      };
+
+    currentSession.lastActiveAt = new Date();
+
+    const removedCount = Math.max(0, sessions.length - 1);
+
+    if (!user.settings) user.settings = {};
+    if (!user.settings.security) user.settings.security = {};
+    const nextSessions = [currentSession];
 
     user.settings.security.activeSessions = nextSessions;
     await user.save({ validateBeforeSave: false });
 
-    return res.status(200).json({ success: true, data: { activeSessions: nextSessions } });
+    return res.status(200).json({
+      success: true,
+      message:
+        removedCount > 0
+          ? 'Logged out of all other devices.'
+          : 'No other active sessions were found.',
+      data: { activeSessions: nextSessions, removedCount },
+    });
   } catch (err) {
     return res.status(500).json({ success: false, message: 'Failed to logout other sessions' });
   }

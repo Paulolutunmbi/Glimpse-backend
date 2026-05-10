@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const { getCloudinary, uploadBuffer } = require('../config/cloudinary');
 const User = require('../models/User');
-const sendEmail = require('../utils/sendEmail');
+const { sendPasswordResetEmail: sendPasswordResetTemplate } = require('../utils/email/emailService');
 const { getIO } = require('../socket');
 const Post = require('../models/Post');
 
@@ -777,19 +777,9 @@ const sendPasswordResetEmail = async (req, res) => {
     const resetUrl = `${resetBaseUrl}?token=${rawToken}`;
 
     try {
-      await sendEmail({
-        to: user.email,
-        subject: 'Reset your Glimpse password',
-        text: `Use this link to reset your password. It expires in 15 minutes: ${resetUrl}`,
-        html: `
-          <div style="font-family:Arial,sans-serif;line-height:1.6;color:#1f1f1f">
-            <h2>Reset your password</h2>
-            <p>This link expires in 15 minutes.</p>
-            <p><a href="${resetUrl}" style="color:#ff5a5f">Reset password</a></p>
-          </div>
-        `,
-      });
+      await sendPasswordResetTemplate(user.email, { resetUrl, name: user.name });
     } catch (err) {
+      console.error('Failed to send reset email:', err && err.message ? err.message : err);
       user.resetPasswordToken = undefined;
       user.resetPasswordExpires = undefined;
       await user.save({ validateBeforeSave: false });

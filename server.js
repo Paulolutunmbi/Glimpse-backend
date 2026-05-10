@@ -11,6 +11,8 @@ const commentRoutes = require('./routes/commentRoutes');
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const discoveryRoutes = require('./routes/discoveryRoutes');
+const emailPreviewRoutes = require('./routes/emailPreviewRoutes');
+const { verifyEmailTransport } = require('./utils/sendEmail');
 
 dotenv.config();
 
@@ -58,6 +60,7 @@ app.use('/api/comments', commentRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/discovery', discoveryRoutes);
+app.use('/dev/email-preview', emailPreviewRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
@@ -79,3 +82,9 @@ const port = process.env.PORT || 5000;
 server.listen(port, () => {
   console.log(`Server running on http://localhost:${port}`);
 });
+
+if (process.env.VERIFY_SMTP_ON_STARTUP === 'true') {
+  verifyEmailTransport()
+    .then(() => console.log('SMTP transport verified'))
+    .catch((err) => console.error('SMTP transport verification failed:', err.message));
+}
