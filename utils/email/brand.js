@@ -1,14 +1,23 @@
 const path = require('path');
 
+const logoCid = 'glimpse-logo';
+const logoFilename = 'glimpse-logo-light-dark.png';
+const logoPath = 'Backend/assets/glimpse-logo-light-dark.png';
+const logoAbsolutePath = path.resolve(__dirname, '../../assets/glimpse-logo-light-dark.png');
+
 const brand = {
   name: 'Glimpse',
   tagline: 'Share the moments that matter.',
   supportEmail: process.env.SUPPORT_EMAIL || 'support@glimpse.app',
   appUrl: process.env.CLIENT_APP_URL || process.env.CLIENT_ORIGIN || 'http://localhost:5173',
+  logoCid,
+  logoPath,
+  logoFilename,
+  logoAbsolutePath,
   logo: {
-    cid: 'glimpse-logo',
-    filename: 'glimpse-logo-light-dark.png',
-    path: path.resolve(__dirname, '../../../Frontend/public/images/glimpse-logo-light-dark.png'),
+    cid: logoCid,
+    filename: logoFilename,
+    path: logoAbsolutePath,
     width: 156,
     alt: 'Glimpse',
   },

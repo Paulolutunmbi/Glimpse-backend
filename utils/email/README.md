@@ -18,8 +18,9 @@ All outgoing email should go through `utils/email/emailService.js`.
 ## Logo loading
 
 Emails reference the logo with `cid:glimpse-logo`. `emailService.js` attaches
-`Frontend/public/images/glimpse-logo-light-dark.png` to every email, so the logo
-does not depend on a public CDN URL.
+`Backend/assets/glimpse-logo-light-dark.png` to every email via an absolute
+path resolved from `utils/email/brand.js`, so the logo does not depend on
+frontend assets, public URLs, or base64 embedding.
 
 ## Adding a Template
 

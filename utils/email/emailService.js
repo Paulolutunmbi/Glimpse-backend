@@ -70,13 +70,13 @@ const getTransporter = () => {
 };
 
 const getDefaultAttachments = () => {
-  if (!fs.existsSync(brand.logo.path)) return [];
+  if (!fs.existsSync(brand.logoAbsolutePath)) return [];
 
   return [
     {
-      filename: brand.logo.filename,
-      path: brand.logo.path,
-      cid: brand.logo.cid,
+      filename: brand.logoFilename,
+      path: brand.logoAbsolutePath,
+      cid: brand.logoCid,
     },
   ];
 };
