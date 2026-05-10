@@ -15,26 +15,42 @@ const hashValue = (value) => crypto.createHash('sha256').update(value).digest('h
 const generateVerificationCode = () =>
   crypto.randomInt(100000, 1000000).toString();
 
-const sanitizeUser = (user) => ({
-  id: user._id,
-  name: user.name,
-  fullName: user.fullName || user.name,
-  username: user.username || user.name,
-  email: user.email,
-  avatar: user.profilePicture || user.avatar,
-  profilePicture: user.profilePicture || user.avatar,
-  bio: user.bio,
-  extraInfo: user.extraInfo,
-  preferences: user.preferences,
-  followers: user.followers,
-  following: user.following,
-  posts: user.posts,
-  savedPosts: user.savedPosts,
-  isFirstLogin: user.isFirstLogin,
-  profileCompleted: user.profileCompleted,
-  isVerified: user.isVerified,
-  createdAt: user.createdAt,
-});
+const sanitizeUser = (user) => {
+  const relations = {
+    followers:
+      user.relations?.followers?.length ? user.relations.followers : user.followers || [],
+    following:
+      user.relations?.following?.length ? user.relations.following : user.following || [],
+  };
+  const stats = {
+    postsCount: user.stats?.postsCount ?? user.posts?.length ?? 0,
+    followersCount: user.stats?.followersCount ?? relations.followers.length,
+    followingCount: user.stats?.followingCount ?? relations.following.length,
+    savedPostsCount: user.stats?.savedPostsCount ?? user.savedPosts?.length ?? 0,
+  };
+  return {
+    id: user._id,
+    name: user.name,
+    fullName: user.fullName || user.name,
+    username: user.username || user.name,
+    email: user.email,
+    isFirstLogin: user.isFirstLogin,
+    profileCompleted: user.profileCompleted,
+    isVerified: user.isVerified,
+    createdAt: user.createdAt,
+    profile: {
+      avatar: user.profile?.avatar || user.profilePicture || user.avatar || '',
+      coverImage: user.profile?.coverImage || user.coverImage || '',
+      bio: user.profile?.bio ?? user.bio ?? '',
+      extraInfo: user.profile?.extraInfo ?? user.extraInfo ?? '',
+      preferences:
+        user.profile?.preferences?.length ? user.profile.preferences : user.preferences || [],
+      joinedAt: user.profile?.joinedAt || user.createdAt,
+    },
+    stats,
+    relations,
+  };
+};
 
 const getJwtSecret = () => {
   const secret = process.env.JWT_SECRET;

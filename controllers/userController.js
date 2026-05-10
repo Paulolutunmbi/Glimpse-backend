@@ -1,7 +1,9 @@
 const crypto = require('crypto');
-const { getCloudinary } = require('../config/cloudinary');
+const { getCloudinary, uploadBuffer } = require('../config/cloudinary');
 const User = require('../models/User');
 const sendEmail = require('../utils/sendEmail');
+const { getIO } = require('../socket');
+const Post = require('../models/Post');
 
 const RESET_TOKEN_TTL_MS = 15 * 60 * 1000;
 
@@ -10,39 +12,106 @@ const normalizePreferences = (prefs) =>
     ? prefs.map((value) => String(value || '').trim()).filter(Boolean)
     : [];
 
-const sanitizeUser = (user) => ({
-  id: user._id,
-  name: user.name,
-  fullName: user.fullName || user.name,
-  username: user.username || user.name,
-  email: user.email,
-  avatar: user.profilePicture || user.avatar,
-  profilePicture: user.profilePicture || user.avatar,
-  bio: user.bio,
-  extraInfo: user.extraInfo,
-  preferences: user.preferences,
-  followers: user.followers,
-  following: user.following,
-  posts: user.posts,
-  savedPosts: user.savedPosts,
-  isFirstLogin: user.isFirstLogin,
-  profileCompleted: user.profileCompleted,
-  isVerified: user.isVerified,
-  createdAt: user.createdAt,
+const buildProfile = (user) => ({
+  avatar: user.profile?.avatar || user.profilePicture || user.avatar || '',
+  coverImage: user.profile?.coverImage || user.coverImage || '',
+  bio: user.profile?.bio ?? user.bio ?? '',
+  extraInfo: user.profile?.extraInfo ?? user.extraInfo ?? '',
+  preferences:
+    user.profile?.preferences?.length ? user.profile.preferences : user.preferences || [],
+  joinedAt: user.profile?.joinedAt || user.createdAt,
 });
 
-const buildProfilePayload = (user) => ({
-  user: sanitizeUser(user),
-  stats: {
-    posts: user.posts?.length || 0,
-    followers: user.followers?.length || 0,
-    following: user.following?.length || 0,
-  },
+const buildRelations = (user) => ({
+  followers:
+    user.relations?.followers?.length ? user.relations.followers : user.followers || [],
+  following:
+    user.relations?.following?.length ? user.relations.following : user.following || [],
 });
+
+const buildStats = (user, relations) => ({
+  postsCount: user.stats?.postsCount ?? user.posts?.length ?? 0,
+  followersCount: user.stats?.followersCount ?? relations.followers.length,
+  followingCount: user.stats?.followingCount ?? relations.following.length,
+  savedPostsCount: user.stats?.savedPostsCount ?? user.savedPosts?.length ?? 0,
+});
+
+const calculateProfileCompletion = (user) => {
+  const profile = buildProfile(user);
+  const checks = [
+    profile.avatar,
+    profile.coverImage,
+    profile.bio,
+    profile.extraInfo,
+    Array.isArray(profile.preferences) && profile.preferences.length > 0,
+  ];
+  const score = checks.reduce((total, value) => total + (value ? 1 : 0), 0);
+  return Math.round((score / checks.length) * 100);
+};
+
+const sanitizeUser = (user) => {
+  const relations = buildRelations(user);
+  const stats = buildStats(user, relations);
+  return {
+    id: user._id,
+    name: user.name,
+    fullName: user.fullName || user.name,
+    username: user.username || user.name,
+    email: user.email,
+    isFirstLogin: user.isFirstLogin,
+    profileCompleted: user.profileCompleted,
+    isVerified: user.isVerified,
+    createdAt: user.createdAt,
+    profile: buildProfile(user),
+    stats,
+    relations,
+  };
+};
+
+const buildProfilePayload = (user) => {
+  const relations = buildRelations(user);
+  const stats = buildStats(user, relations);
+  return {
+    user: sanitizeUser(user),
+    profile: buildProfile(user),
+    stats,
+    relations,
+    posts: user.posts || [],
+    savedPosts: user.savedPosts || [],
+  };
+};
+const emitProfileUpdated = (user) => {
+  try {
+    const io = getIO();
+    io.emit('profileUpdated', {
+      userId: String(user._id),
+      profile: buildProfilePayload(user),
+    });
+  } catch (err) {
+    console.error('Socket emit failed:', err.message);
+  }
+};
 
 const getUserProfile = async (req, res) => {
   try {
     const user = await User.findById(req.userId)
+      .populate('posts')
+      .populate('savedPosts');
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    return res.status(200).json({ success: true, data: buildProfilePayload(user) });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Failed to load profile' });
+  }
+};
+
+const getUserProfileById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await User.findById(id)
       .populate('posts')
       .populate('savedPosts');
 
@@ -69,6 +138,7 @@ const updateProfile = async (req, res) => {
     } = req.body || {};
 
     const updates = {};
+    const profileUpdates = {};
 
     if (typeof username === 'string') {
       const trimmed = username.trim();
@@ -91,15 +161,34 @@ const updateProfile = async (req, res) => {
     }
 
     if (typeof bio === 'string') {
-      updates.bio = bio.trim();
+      const trimmedBio = bio.trim();
+      updates.bio = trimmedBio;
+      profileUpdates['profile.bio'] = trimmedBio;
     }
 
     if (typeof extraInfo === 'string') {
-      updates.extraInfo = extraInfo.trim();
+      const trimmedExtraInfo = extraInfo.trim();
+      updates.extraInfo = trimmedExtraInfo;
+      profileUpdates['profile.extraInfo'] = trimmedExtraInfo;
     }
 
+    let normalizedPreferences = null;
     if (Array.isArray(preferences)) {
-      updates.preferences = normalizePreferences(preferences);
+      normalizedPreferences = normalizePreferences(preferences);
+    } else if (typeof preferences === 'string' && preferences.trim()) {
+      try {
+        const parsed = JSON.parse(preferences);
+        if (Array.isArray(parsed)) {
+          normalizedPreferences = normalizePreferences(parsed);
+        }
+      } catch (err) {
+        normalizedPreferences = normalizePreferences(preferences.split(','));
+      }
+    }
+
+    if (normalizedPreferences) {
+      updates.preferences = normalizedPreferences;
+      profileUpdates['profile.preferences'] = normalizedPreferences;
     }
 
     if (typeof profileCompleted === 'boolean') {
@@ -110,25 +199,55 @@ const updateProfile = async (req, res) => {
       updates.isFirstLogin = isFirstLogin;
     }
 
-    const user = await User.findByIdAndUpdate(req.userId, updates, {
+    const user = await User.findById(req.userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const completionSeed = {
+      profile: {
+        avatar: profileUpdates['profile.avatar'] || user.profile?.avatar || user.avatar || '',
+        coverImage: profileUpdates['profile.coverImage'] || user.profile?.coverImage || user.coverImage || '',
+        bio: profileUpdates['profile.bio'] || updates.bio || user.bio || '',
+        extraInfo: profileUpdates['profile.extraInfo'] || updates.extraInfo || user.extraInfo || '',
+        preferences: normalizedPreferences || user.preferences || [],
+      },
+      createdAt: user.createdAt,
+    };
+
+    updates.profileCompletion = calculateProfileCompletion({
+      ...user.toObject(),
+      ...completionSeed,
+    });
+
+    const updatedBase = await User.findByIdAndUpdate(req.userId, updates, {
       new: true,
       runValidators: true,
     })
       .populate('posts')
       .populate('savedPosts');
 
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
+    if (Object.keys(profileUpdates).length > 0) {
+      await User.findByIdAndUpdate(req.userId, { $set: profileUpdates }, { new: true });
+      const updatedUser = await User.findById(req.userId)
+        .populate('posts')
+        .populate('savedPosts');
+      if (!updatedUser) {
+        return res.status(404).json({ success: false, message: 'User not found' });
+      }
+      emitProfileUpdated(updatedUser);
+      return res.status(200).json({ success: true, data: buildProfilePayload(updatedUser) });
     }
 
-    return res.status(200).json({ success: true, data: buildProfilePayload(user) });
+    emitProfileUpdated(updatedBase);
+    return res.status(200).json({ success: true, data: buildProfilePayload(updatedBase) });
   } catch (err) {
     return res.status(500).json({ success: false, message: 'Failed to update profile' });
   }
 };
 
 const MAX_BASE64_SIZE_BYTES = 5 * 1024 * 1024;
-const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
 const parseBase64Image = (dataUri) => {
   const match = /^data:(.+);base64,(.*)$/.exec(String(dataUri || '').trim());
@@ -149,46 +268,88 @@ const validateBase64Image = (dataUri) => {
   return { valid: true };
 };
 
+const ensureCloudinaryConfigured = (res) => {
+  try {
+    getCloudinary();
+    return true;
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: 'Cloudinary is not configured on the server',
+    });
+    return false;
+  }
+};
+
+const pickFirstFile = (req, fields) => {
+  for (const field of fields) {
+    if (req.files?.[field]?.length) {
+      return req.files[field][0];
+    }
+  }
+  return req.file || null;
+};
+
+const uploadImageBufferToCloudinary = async ({ buffer, folder, publicId, transformation }) => {
+  const result = await uploadBuffer({
+    buffer,
+    folder,
+    publicId,
+    resourceType: 'image',
+    transformation,
+  });
+  return { url: result.secure_url, publicId: result.public_id };
+};
+
+const uploadDataUriToCloudinary = async ({ dataUri, folder, publicId, transformation }) => {
+  const cloudinary = getCloudinary();
+  const result = await cloudinary.uploader.upload(dataUri, {
+    folder,
+    public_id: publicId,
+    resource_type: 'image',
+    transformation,
+  });
+  return { url: result.secure_url, publicId: result.public_id };
+};
+
 const uploadAvatar = async (req, res) => {
   try {
-    const file =
-      req.file ||
-      req.files?.profilePicture?.[0] ||
-      req.files?.avatar?.[0] ||
-      req.files?.image?.[0] ||
-      null;
+    const file = pickFirstFile(req, ['profilePicture', 'avatar', 'image']);
     const { avatar, avatarUrl, imageData } = req.body || {};
     const payload = avatar || avatarUrl || imageData;
 
     let finalUrl = '';
     let publicId = '';
 
+    if (file || (payload && typeof payload === 'string')) {
+      if (!ensureCloudinaryConfigured(res)) {
+        return null;
+      }
+    }
+
     if (file) {
-      finalUrl = file.path || file.secure_url || '';
-      publicId = file.filename || file.public_id || '';
+      const uploadResult = await uploadImageBufferToCloudinary({
+        buffer: file.buffer,
+        folder: 'glimpse/profile-images',
+        publicId: `user-${req.userId}-${Date.now()}`,
+        transformation: [{ width: 512, height: 512, crop: 'fill', gravity: 'face' }],
+      });
+      finalUrl = uploadResult.url;
+      publicId = uploadResult.publicId;
     } else if (payload && typeof payload === 'string') {
       const validation = validateBase64Image(payload);
       if (!validation.valid) {
         return res.status(400).json({ success: false, message: validation.message });
       }
 
-      let cloudinary;
-      try {
-        cloudinary = getCloudinary();
-      } catch (err) {
-        return res.status(500).json({
-          success: false,
-          message: 'Cloudinary is not configured on the server',
-        });
-      }
-
-      const uploadResult = await cloudinary.uploader.upload(payload.trim(), {
-        folder: 'glimpse/avatars',
-        resource_type: 'image',
+      const uploadResult = await uploadDataUriToCloudinary({
+        dataUri: payload.trim(),
+        folder: 'glimpse/profile-images',
+        publicId: `user-${req.userId}-${Date.now()}`,
         transformation: [{ width: 512, height: 512, crop: 'fill', gravity: 'face' }],
       });
-      finalUrl = uploadResult.secure_url;
-      publicId = uploadResult.public_id;
+      finalUrl = uploadResult.url;
+      publicId = uploadResult.publicId;
     } else {
       return res.status(400).json({ success: false, message: 'avatar image is required' });
     }
@@ -213,6 +374,14 @@ const uploadAvatar = async (req, res) => {
         avatar: finalUrl,
         profilePicture: finalUrl,
         profilePicturePublicId: publicId || existingUser.profilePicturePublicId || '',
+        'profile.avatar': finalUrl,
+        profileCompletion: calculateProfileCompletion({
+          ...existingUser.toObject(),
+          profile: {
+            ...existingUser.profile,
+            avatar: finalUrl,
+          },
+        }),
       },
       { new: true, runValidators: true }
     )
@@ -223,19 +392,83 @@ const uploadAvatar = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
+    emitProfileUpdated(user);
     return res.status(200).json({ success: true, data: buildProfilePayload(user) });
   } catch (err) {
     return res.status(500).json({ success: false, message: 'Failed to upload avatar' });
   }
 };
 
-const updatePreferences = async (req, res) => {
+const uploadCoverImage = async (req, res) => {
   try {
-    const preferences = normalizePreferences(req.body?.preferences);
+    const file = pickFirstFile(req, ['coverImage', 'image']);
+    const { coverImage, coverImageUrl, imageData } = req.body || {};
+    const payload = coverImage || coverImageUrl || imageData;
+
+    let finalUrl = '';
+    let publicId = '';
+
+    if (file || (payload && typeof payload === 'string')) {
+      if (!ensureCloudinaryConfigured(res)) {
+        return null;
+      }
+    }
+
+    if (file) {
+      const uploadResult = await uploadImageBufferToCloudinary({
+        buffer: file.buffer,
+        folder: 'glimpse/cover-images',
+        publicId: `cover-${req.userId}-${Date.now()}`,
+        transformation: [{ width: 1600, height: 900, crop: 'fill' }],
+      });
+      finalUrl = uploadResult.url;
+      publicId = uploadResult.publicId;
+    } else if (payload && typeof payload === 'string') {
+      const validation = validateBase64Image(payload);
+      if (!validation.valid) {
+        return res.status(400).json({ success: false, message: validation.message });
+      }
+
+      const uploadResult = await uploadDataUriToCloudinary({
+        dataUri: payload.trim(),
+        folder: 'glimpse/cover-images',
+        publicId: `cover-${req.userId}-${Date.now()}`,
+        transformation: [{ width: 1600, height: 900, crop: 'fill' }],
+      });
+      finalUrl = uploadResult.url;
+      publicId = uploadResult.publicId;
+    } else {
+      return res.status(400).json({ success: false, message: 'cover image is required' });
+    }
+
+    const existingUser = await User.findById(req.userId);
+    if (!existingUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (existingUser.coverImagePublicId) {
+      try {
+        const cloudinary = getCloudinary();
+        await cloudinary.uploader.destroy(existingUser.coverImagePublicId);
+      } catch (err) {
+        console.error('Failed to delete old Cloudinary asset:', err.message);
+      }
+    }
 
     const user = await User.findByIdAndUpdate(
       req.userId,
-      { preferences },
+      {
+        coverImage: finalUrl,
+        coverImagePublicId: publicId || existingUser.coverImagePublicId || '',
+        'profile.coverImage': finalUrl,
+        profileCompletion: calculateProfileCompletion({
+          ...existingUser.toObject(),
+          profile: {
+            ...existingUser.profile,
+            coverImage: finalUrl,
+          },
+        }),
+      },
       { new: true, runValidators: true }
     )
       .populate('posts')
@@ -245,9 +478,191 @@ const updatePreferences = async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
+    emitProfileUpdated(user);
+    return res.status(200).json({ success: true, data: buildProfilePayload(user) });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Failed to upload cover image' });
+  }
+};
+
+const updatePreferences = async (req, res) => {
+  try {
+    const preferences = normalizePreferences(req.body?.preferences);
+
+    const existingUser = await User.findById(req.userId);
+    if (!existingUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      req.userId,
+      {
+        preferences,
+        'profile.preferences': preferences,
+        profileCompletion: calculateProfileCompletion({
+          ...existingUser.toObject(),
+          profile: {
+            ...existingUser.profile,
+            preferences,
+          },
+        }),
+      },
+      { new: true, runValidators: true }
+    )
+      .populate('posts')
+      .populate('savedPosts');
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    emitProfileUpdated(user);
     return res.status(200).json({ success: true, data: buildProfilePayload(user) });
   } catch (err) {
     return res.status(500).json({ success: false, message: 'Failed to update preferences' });
+  }
+};
+
+const followUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (String(req.userId) === String(id)) {
+      return res.status(400).json({ success: false, message: 'Cannot follow yourself' });
+    }
+
+    const currentUser = await User.findById(req.userId).select('following');
+    if (!currentUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (currentUser.following?.some((userId) => String(userId) === String(id))) {
+      return res.status(200).json({ success: true });
+    }
+
+    const target = await User.findByIdAndUpdate(
+      id,
+      {
+        $addToSet: { followers: req.userId, 'relations.followers': req.userId },
+        $inc: { 'stats.followersCount': 1 },
+      },
+      { new: true }
+    );
+
+    if (!target) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    await User.findByIdAndUpdate(req.userId, {
+      $addToSet: { following: id, 'relations.following': id },
+      $inc: { 'stats.followingCount': 1 },
+    });
+
+    try {
+      const io = getIO();
+      io.emit('followUpdated', { userId: String(id) });
+      io.emit('followUpdated', { userId: String(req.userId) });
+    } catch (err) {
+      console.error('Socket emit failed:', err.message);
+    }
+
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Failed to follow user' });
+  }
+};
+
+const unfollowUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const currentUser = await User.findById(req.userId).select('following');
+    if (!currentUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const isFollowing = currentUser.following?.some((userId) => String(userId) === String(id));
+
+    await User.findByIdAndUpdate(id, {
+      $pull: { followers: req.userId, 'relations.followers': req.userId },
+      $inc: { 'stats.followersCount': isFollowing ? -1 : 0 },
+    });
+
+    await User.findByIdAndUpdate(req.userId, {
+      $pull: { following: id, 'relations.following': id },
+      $inc: { 'stats.followingCount': isFollowing ? -1 : 0 },
+    });
+
+    try {
+      const io = getIO();
+      io.emit('followUpdated', { userId: String(id) });
+      io.emit('followUpdated', { userId: String(req.userId) });
+    } catch (err) {
+      console.error('Socket emit failed:', err.message);
+    }
+
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Failed to unfollow user' });
+  }
+};
+
+const savePost = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const post = await Post.findById(id);
+    if (!post) {
+      return res.status(404).json({ success: false, message: 'Post not found' });
+    }
+
+    const existingUser = await User.findById(req.userId).select('savedPosts');
+    if (!existingUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (existingUser.savedPosts?.some((postId) => String(postId) === String(id))) {
+      return res.status(200).json({ success: true });
+    }
+
+    await User.findByIdAndUpdate(req.userId, {
+      $addToSet: { savedPosts: id },
+      $inc: { 'stats.savedPostsCount': 1 },
+    });
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Failed to save post' });
+  }
+};
+
+const unsavePost = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const existingUser = await User.findById(req.userId).select('savedPosts');
+    if (!existingUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const hasSaved = existingUser.savedPosts?.some((postId) => String(postId) === String(id));
+    await User.findByIdAndUpdate(req.userId, {
+      $pull: { savedPosts: id },
+      $inc: { 'stats.savedPostsCount': hasSaved ? -1 : 0 },
+    });
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Failed to unsave post' });
+  }
+};
+
+const getProfileStats = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await User.findById(id).select('stats followers following posts savedPosts');
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const stats = buildStats(user, buildRelations(user));
+    return res.status(200).json({ success: true, data: { stats } });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Failed to load stats' });
   }
 };
 
@@ -305,8 +720,15 @@ const sendPasswordResetEmail = async (req, res) => {
 
 module.exports = {
   getUserProfile,
+  getUserProfileById,
   updateProfile,
   uploadAvatar,
+  uploadCoverImage,
   updatePreferences,
   sendPasswordResetEmail,
+  followUser,
+  unfollowUser,
+  savePost,
+  unsavePost,
+  getProfileStats,
 };

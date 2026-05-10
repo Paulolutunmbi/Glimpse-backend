@@ -39,10 +39,14 @@ const createPost = async (req, res) => {
     });
 
     await post.save();
-    await User.findByIdAndUpdate(author._id, { $addToSet: { posts: post._id } });
+    await User.findByIdAndUpdate(author._id, {
+      $addToSet: { posts: post._id },
+      $inc: { 'stats.postsCount': 1 },
+    });
     try {
       const io = getIO();
       io.emit('post:created', { post });
+      io.emit('postCreated', { post });
     } catch (err) {
       console.error('Socket emit failed:', err.message);
     }
@@ -80,6 +84,11 @@ const toggleLike = async (req, res) => {
         likes: post.likes,
         likesCount: post.likes.length,
       });
+      io.to(String(id)).emit('postLiked', {
+        postId: String(id),
+        likes: post.likes,
+        likesCount: post.likes.length,
+      });
     } catch (err) {
       console.error('Socket emit failed:', err.message);
     }
@@ -89,4 +98,40 @@ const toggleLike = async (req, res) => {
   }
 };
 
-module.exports = { getPosts, createPost, toggleLike };
+// DELETE /api/posts/:id — delete a post
+const deletePost = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.userId;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const post = await Post.findById(id);
+    if (!post) return res.status(404).json({ error: 'Post not found' });
+
+    if (String(post.author) !== String(userId)) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    await post.deleteOne();
+    await User.findByIdAndUpdate(userId, {
+      $pull: { posts: id },
+      $inc: { 'stats.postsCount': -1 },
+    });
+
+    try {
+      const io = getIO();
+      io.emit('postDeleted', { postId: String(id), userId: String(userId) });
+    } catch (err) {
+      console.error('Socket emit failed:', err.message);
+    }
+
+    return res.status(200).json({ success: true, postId: id });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to delete post', details: err.message });
+  }
+};
+
+module.exports = { getPosts, createPost, toggleLike, deletePost };

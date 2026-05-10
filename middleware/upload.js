@@ -1,59 +1,60 @@
 const multer = require('multer');
-const { CloudinaryStorage } = require('multer-storage-cloudinary');
-const { getCloudinary } = require('../config/cloudinary');
 
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
-const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
-const buildUpload = (req) => {
-  const cloudinary = getCloudinary();
+const memoryStorage = multer.memoryStorage();
 
-  const storage = new CloudinaryStorage({
-    cloudinary,
-    params: {
-      folder: 'glimpse/profile-pictures',
-      resource_type: 'image',
-      public_id: `user-${req.userId}-${Date.now()}`,
-      transformation: [{ width: 512, height: 512, crop: 'fill', gravity: 'face' }],
-    },
-  });
-
-  return multer({
-    storage,
+const createUploader = () =>
+  multer({
+    storage: memoryStorage,
     limits: { fileSize: MAX_FILE_SIZE_BYTES },
     fileFilter: (reqFile, file, cb) => {
       if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
-        return cb(new Error('Only JPG, PNG, WEBP, or GIF images are allowed'));
+        return cb(new Error('Only JPG, PNG, or WEBP images are allowed'));
       }
       return cb(null, true);
     },
   });
+
+const mapMulterError = (err) => {
+  if (!err) return null;
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return { status: 413, message: 'Image must be 5MB or less' };
+    }
+    return { status: 400, message: err.message };
+  }
+  return { status: 400, message: err.message || 'Invalid upload' };
 };
 
-const uploadProfilePicture = (req, res, next) => {
-  let uploader;
-  try {
-    uploader = buildUpload(req);
-  } catch (err) {
-    return res.status(500).json({
-      success: false,
-      message: 'Cloudinary is not configured on the server',
-    });
-  }
-
-  return uploader.fields([
-    { name: 'profilePicture', maxCount: 1 },
-    { name: 'avatar', maxCount: 1 },
-    { name: 'image', maxCount: 1 },
-  ])(req, res, (err) => {
-    if (err) {
-      return res.status(400).json({ success: false, message: err.message });
+const runUpload = (uploader, fields) => (req, res, next) =>
+  uploader.fields(fields)(req, res, (err) => {
+    const mapped = mapMulterError(err);
+    if (mapped) {
+      return res.status(mapped.status).json({ success: false, message: mapped.message });
     }
     return next();
   });
-};
+
+const uploadProfilePicture = runUpload(createUploader(), [
+  { name: 'profilePicture', maxCount: 1 },
+  { name: 'avatar', maxCount: 1 },
+  { name: 'image', maxCount: 1 },
+  { name: 'coverImage', maxCount: 1 },
+]);
+
+const uploadCoverImage = runUpload(createUploader(), [{ name: 'coverImage', maxCount: 1 }]);
+
+const uploadPostMedia = runUpload(createUploader(), [
+  { name: 'image', maxCount: 1 },
+  { name: 'media', maxCount: 5 },
+]);
 
 module.exports = {
   uploadProfilePicture,
+  uploadCoverImage,
+  uploadPostMedia,
   MAX_FILE_SIZE_BYTES,
+  ALLOWED_MIME_TYPES,
 };
