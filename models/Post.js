@@ -46,7 +46,7 @@ const postSchema = new mongoose.Schema(
     hashtags: { type: [String], default: [] },
     mentions: { type: [String], default: [] },
     duration: { type: String, default: '' },
-    likes: { type: [String], default: [] }, // array of userIds (or IP strings for demo)
+    likes: { type: [String], default: [] },
     comments: { type: Number, default: 0 },
     shares: { type: Number, default: 0 },
     shareCount: { type: Number, default: 0 },

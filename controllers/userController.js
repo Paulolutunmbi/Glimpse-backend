@@ -6,7 +6,7 @@ const { getIO } = require('../socket');
 const Post = require('../models/Post');
 const { createNotification } = require('../services/notificationService');
 const { buildVisibilityQuery } = require('../utils/visibility');
-const { isAdminUser } = require('../utils/admin');
+const { isAdminEmail } = require('../utils/admin');
 
 const RESET_TOKEN_TTL_MS = 15 * 60 * 1000;
 
@@ -76,8 +76,8 @@ const sanitizeUser = (user) => {
     profileCompleted: user.profileCompleted,
     onboardingCompleted: user.onboardingCompleted,
     isVerified: user.isVerified,
-    isAdmin: isAdminUser(user),
     isBanned: Boolean(user.isBanned),
+    isAdmin: isAdminEmail(user.email),
     createdAt: user.createdAt,
     profile: buildProfile(user),
     stats,

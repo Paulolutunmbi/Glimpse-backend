@@ -1,26 +1,24 @@
-const DEFAULT_ADMIN_EMAIL = 'oluwatunmbipaul@gmail.com';
+const ADMIN_EMAIL = String(process.env.ADMIN_EMAIL || 'oluwatunmbipaul@gmail.com')
+  .trim()
+  .toLowerCase();
+
+const MAX_ADMIN_ATTEMPTS = Number(process.env.ADMIN_MAX_ATTEMPTS || 5);
+const ADMIN_ATTEMPT_COOLDOWN_MS = Number(process.env.ADMIN_ATTEMPT_COOLDOWN_MS || 15 * 60 * 1000);
 
 const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
 
-const getAdminEmails = () => {
-  const raw = process.env.ADMIN_EMAILS || process.env.ADMIN_EMAIL || DEFAULT_ADMIN_EMAIL;
-  return raw
-    .split(',')
-    .map((value) => normalizeEmail(value))
-    .filter(Boolean);
-};
+const isAdminEmail = (email) => normalizeEmail(email) === ADMIN_EMAIL;
 
-const isAdminEmail = (email) => {
-  const normalized = normalizeEmail(email);
-  if (!normalized) return false;
-  return getAdminEmails().includes(normalized);
-};
-
-const isAdminUser = (user) => isAdminEmail(user?.email);
+const getRequestIp = (req) =>
+  String(req.headers?.['x-forwarded-for'] || req.ip || req.socket?.remoteAddress || '')
+    .split(',')[0]
+    .trim();
 
 module.exports = {
-  normalizeEmail,
-  getAdminEmails,
+  ADMIN_EMAIL,
+  MAX_ADMIN_ATTEMPTS,
+  ADMIN_ATTEMPT_COOLDOWN_MS,
   isAdminEmail,
-  isAdminUser,
+  normalizeEmail,
+  getRequestIp,
 };

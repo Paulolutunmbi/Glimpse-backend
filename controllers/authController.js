@@ -1,7 +1,6 @@
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
-const { isAdminUser } = require('../utils/admin');
 const {
   sendVerificationEmail,
   sendPasswordResetEmail,
@@ -21,6 +20,8 @@ const hashValue = (value) => crypto.createHash('sha256').update(value).digest('h
 
 const generateVerificationCode = () =>
   crypto.randomInt(100000, 1000000).toString();
+
+const { isAdminEmail } = require('../utils/admin');
 
 const sanitizeUser = (user) => {
   const relations = {
@@ -45,8 +46,8 @@ const sanitizeUser = (user) => {
     profileCompleted: user.profileCompleted,
     onboardingCompleted: user.onboardingCompleted,
     isVerified: user.isVerified,
-    isAdmin: isAdminUser(user),
     isBanned: Boolean(user.isBanned),
+    isAdmin: isAdminEmail(user.email),
     createdAt: user.createdAt,
     profile: {
       avatar: user.profile?.avatar || user.profilePicture || user.avatar || '',
@@ -285,13 +286,13 @@ const login = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
 
-    if (user.isBanned) {
-      return res.status(403).json({ success: false, message: 'Account banned' });
-    }
-
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    }
+
+    if (user.isBanned) {
+      return res.status(403).json({ success: false, message: 'Account banned', code: 'BANNED' });
     }
 
     if (!user.isVerified) {

@@ -43,7 +43,6 @@ Glimpse Backend is an Express and MongoDB API that powers authentication, posts,
 | `scripts/` | Utility scripts such as email preview rendering |
 | `assets/` | Static email assets |
 | `tmp/email-preview/` | Generated HTML and text previews from the email script |
-| `seed.js` | Local seed data for demo users and posts |
 
 ## Installation
 
@@ -112,19 +111,7 @@ The app listens on `http://localhost:5000` by default unless `PORT` is set.
 1. Start a MongoDB instance locally or use a hosted MongoDB Atlas cluster.
 2. Set `MONGO_URI` to the connection string.
 3. Run the server once to let Mongoose connect.
-4. Optional: load demo data with the seed script.
-
-Seed commands:
-
-```bash
-npm run seed
-```
-
-Force reseed:
-
-```bash
-npm run seed -- --force
-```
+4. Start the server once to let Mongoose connect.
 
 ## API Documentation
 
@@ -231,4 +218,3 @@ npm run seed -- --force
 - Configure `CLIENT_ORIGINS` to include the deployed frontend domain so CORS and Socket.IO accept browser requests.
 - If the frontend is hosted on a different domain, update `CLIENT_APP_URL` and `CLIENT_RESET_PASSWORD_URL` so email links point to the correct app.
 - The server uses an in-memory rate limiter and feed cache, so a multi-instance deployment should be placed behind sticky sessions or an external cache if you need consistent throttling and cache behavior.
-- `npm run seed` is intended for local development and demo data only.

@@ -6,7 +6,6 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "seed": "node seed.js",
     "email:preview": "node scripts/previewEmail.js"
   },
   "keywords": [],

@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const User = require('../models/User');
+const { isAdminEmail } = require('../utils/admin');
 
 const hashToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
 
@@ -27,16 +28,24 @@ const auth = async (req, res, next) => {
     }
 
     if (req.user.isBanned) {
-      return res.status(403).json({ success: false, message: 'Account banned' });
+      return res.status(403).json({
+        success: false,
+        message: 'Account banned',
+        code: 'BANNED',
+      });
     }
 
-    const activeSessions = req.user.settings?.security?.activeSessions || [];
-    const isActiveSession = activeSessions.some(
-      (session) => session?.sessionId && session.sessionId === req.sessionId
-    );
+    req.isAdmin = isAdminEmail(req.user.email);
 
-    if (!isActiveSession) {
-      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    const activeSessions = req.user.settings?.security?.activeSessions || [];
+    if (activeSessions.length > 0) {
+      const isActiveSession = activeSessions.some(
+        (session) => session?.sessionId && session.sessionId === req.sessionId
+      );
+
+      if (!isActiveSession) {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+      }
     }
 
     return next();

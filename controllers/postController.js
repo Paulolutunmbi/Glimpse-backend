@@ -331,7 +331,6 @@ const createPost = async (req, res) => {
     try {
       const io = getIO();
       io.emit('post:created', { post });
-      io.emit('postCreated', { post });
     } catch (err) {
       console.error('Socket emit failed:', err.message);
     }
@@ -386,11 +385,6 @@ const toggleLike = async (req, res) => {
     try {
       const io = getIO();
       io.to(String(id)).emit('post:liked', {
-        postId: String(id),
-        likes: post.likes,
-        likesCount: post.likes.length,
-      });
-      io.to(String(id)).emit('postLiked', {
         postId: String(id),
         likes: post.likes,
         likesCount: post.likes.length,
