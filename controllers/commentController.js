@@ -2,6 +2,8 @@ const Comment = require('../models/Comment');
 const User = require('../models/User');
 const Post = require('../models/Post');
 const { getIO } = require('../socket');
+const { createNotification } = require('../services/notificationService');
+const { buildVisibilityQuery } = require('../utils/visibility');
 
 const createComment = async (req, res) => {
   try {
@@ -21,6 +23,12 @@ const createComment = async (req, res) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
+    const visibilityQuery = await buildVisibilityQuery(req.userId);
+    const visiblePost = await Post.findOne({ _id: postId, ...visibilityQuery }).select('_id author');
+    if (!visiblePost) {
+      return res.status(403).json({ error: 'Not allowed to comment on this post' });
+    }
+
     const comment = new Comment({
       postId,
       userId: String(req.userId),
@@ -31,6 +39,17 @@ const createComment = async (req, res) => {
 
     await comment.save();
     await Post.findByIdAndUpdate(postId, { $inc: { comments: 1 } }).catch(() => null);
+
+    if (visiblePost?.author) {
+      await createNotification({
+        userId: visiblePost.author,
+        actorId: req.userId,
+        type: 'comment',
+        postId,
+        commentId: comment._id,
+        preview: trimmedText.slice(0, 120),
+      });
+    }
     try {
       const io = getIO();
       io.to(String(postId)).emit('comment:created', { comment });
@@ -46,6 +65,12 @@ const createComment = async (req, res) => {
 const getCommentsByPost = async (req, res) => {
   try {
     const { postId } = req.params;
+    const visibilityQuery = await buildVisibilityQuery(req.userId);
+    const visiblePost = await Post.findOne({ _id: postId, ...visibilityQuery }).select('_id');
+    if (!visiblePost) {
+      return res.status(403).json({ error: 'Not allowed to view comments on this post' });
+    }
+
     const comments = await Comment.find({ postId }).sort({ createdAt: 1 });
     return res.status(200).json(comments);
   } catch (err) {

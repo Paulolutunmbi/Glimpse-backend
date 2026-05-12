@@ -42,6 +42,7 @@ const sanitizeUser = (user) => {
     email: user.email,
     isFirstLogin: user.isFirstLogin,
     profileCompleted: user.profileCompleted,
+    onboardingCompleted: user.onboardingCompleted,
     isVerified: user.isVerified,
     createdAt: user.createdAt,
     profile: {
@@ -295,8 +296,11 @@ const login = async (req, res) => {
 
     const token = createToken(user, sessionId);
     const safeUser = sanitizeUser(user);
-    const shouldOnboard = user.isFirstLogin || !user.profileCompleted;
-    const redirectTo = shouldOnboard ? '/profile-setup' : '/profile';
+    const hasCompletedOnboarding =
+      typeof user.onboardingCompleted === 'boolean'
+        ? user.onboardingCompleted
+        : Boolean(user.profileCompleted || user.isFirstLogin === false);
+    const redirectTo = hasCompletedOnboarding ? '/' : '/profile-setup';
 
     return res.status(200).json({
       success: true,

@@ -32,13 +32,14 @@ const postSchema = new mongoose.Schema(
     },
     visibility: {
       type: String,
-      enum: ['public', 'followers', 'private'],
+      enum: ['public', 'followers', 'friends', 'private'],
       default: 'public',
     },
     image: { type: String, default: '' },
     media: { type: [mediaSchema], default: [] },
     title: { type: String, default: '' },
     caption: { type: String, default: '' },
+    location: { type: String, default: '' },
     quote: { type: String, default: '' },
     category: { type: String, default: '' },
     tags: { type: [String], default: [] },
@@ -67,6 +68,7 @@ postSchema.index({
   tags: 'text',
   hashtags: 'text',
   mentions: 'text',
+  location: 'text',
   'user.username': 'text',
   'user.name': 'text',
 });

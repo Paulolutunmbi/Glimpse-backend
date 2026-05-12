@@ -3,14 +3,31 @@ const Post = require('../models/Post');
 const User = require('../models/User');
 const { getIO } = require('../socket');
 const { uploadPostMedia, deleteMediaAssets } = require('../services/mediaService');
+const { buildVisibilityQuery, getViewerRelations } = require('../utils/visibility');
+const { createNotification } = require('../services/notificationService');
 
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 25;
 
-const normalizeList = (value) =>
-  Array.isArray(value)
-    ? value.map((item) => String(item || '').trim()).filter(Boolean)
-    : [];
+const normalizeList = (value) => {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || '').trim()).filter(Boolean);
+  }
+  if (typeof value === 'string' && value.trim()) {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed.map((item) => String(item || '').trim()).filter(Boolean);
+      }
+    } catch (err) {
+      return value
+        .split(',')
+        .map((item) => String(item || '').trim())
+        .filter(Boolean);
+    }
+  }
+  return [];
+};
 
 const extractHashtags = (text) => {
   if (!text) return [];
@@ -138,16 +155,28 @@ const getFeed = async (req, res) => {
       if (cached) return res.status(200).json(cached);
     }
 
-    const baseQuery = { visibility: 'public' };
+    const baseQuery = {};
     let sort = { createdAt: -1, _id: -1 };
+
+    if (type === 'reels') {
+      baseQuery.type = 'video';
+    }
 
     if (type === 'following') {
       if (!userId) return res.status(401).json({ error: 'Unauthorized' });
-      const user = await User.findById(userId).select('relations.following following');
-      const following = user?.relations?.following?.length
-        ? user.relations.following
-        : user?.following || [];
-      baseQuery.author = { $in: following };
+      const { following, mutual } = await getViewerRelations(userId);
+      const followingIds = [...new Set([...following, String(userId)])];
+      baseQuery.author = { $in: followingIds };
+      baseQuery.$and = [
+        {
+          $or: [
+            { visibility: 'public' },
+            { visibility: 'followers' },
+            { visibility: 'friends', author: { $in: mutual } },
+            { visibility: 'private', author: String(userId) },
+          ],
+        },
+      ];
     }
 
     if (type === 'personalized') {
@@ -165,8 +194,12 @@ const getFeed = async (req, res) => {
       sort = { trendingScore: -1, createdAt: -1, _id: -1 };
     }
 
-    const cursorQuery = buildCursorQuery(cursorData, type === 'trending' || type === 'explore' ? 'trending' : 'latest');
-    const posts = await Post.find({ ...baseQuery, ...cursorQuery })
+    const visibilityQuery = await buildVisibilityQuery(userId);
+    const cursorQuery = buildCursorQuery(
+      cursorData,
+      type === 'trending' || type === 'explore' ? 'trending' : 'latest'
+    );
+    const posts = await Post.find({ ...baseQuery, ...visibilityQuery, ...cursorQuery })
       .sort(sort)
       .limit(limit + 1);
 
@@ -209,6 +242,11 @@ const createPost = async (req, res) => {
       visibility,
       repostOf,
     } = req.body || {};
+
+    const allowedVisibility = ['public', 'followers', 'friends', 'private'];
+    if (visibility && !allowedVisibility.includes(visibility)) {
+      return res.status(400).json({ error: 'Invalid visibility option' });
+    }
 
     const mediaFiles = [
       ...(req.files?.image || []),
@@ -257,6 +295,7 @@ const createPost = async (req, res) => {
       visibility: visibility || 'public',
       title: title || '',
       caption: caption || '',
+      location: req.body?.location || '',
       category: category || '',
       tags: normalizedTags,
       hashtags: combinedHashtags,
@@ -271,6 +310,23 @@ const createPost = async (req, res) => {
       $addToSet: { posts: post._id },
       $inc: { 'stats.postsCount': 1 },
     });
+
+    if (post.type === 'video' && post.visibility !== 'private') {
+      const followers = author.relations?.followers?.length
+        ? author.relations.followers
+        : author.followers || [];
+      await Promise.all(
+        followers.map((followerId) =>
+          createNotification({
+            userId: followerId,
+            actorId: author._id,
+            type: 'reel',
+            postId: post._id,
+            preview: 'posted a new reel',
+          })
+        )
+      );
+    }
 
     try {
       const io = getIO();
@@ -304,7 +360,8 @@ const toggleLike = async (req, res) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const post = await Post.findById(id);
+    const visibilityQuery = await buildVisibilityQuery(userId);
+    const post = await Post.findOne({ _id: id, ...visibilityQuery });
     if (!post) return res.status(404).json({ error: 'Post not found' });
 
     const userIdString = String(userId);
@@ -315,6 +372,16 @@ const toggleLike = async (req, res) => {
       post.likes.push(userIdString);
     }
     await updateTrendingScore(post);
+
+    if (!alreadyLiked) {
+      await createNotification({
+        userId: post.author,
+        actorId: userId,
+        type: 'like',
+        postId: post._id,
+        preview: 'liked your post',
+      });
+    }
 
     try {
       const io = getIO();
@@ -341,8 +408,9 @@ const toggleLike = async (req, res) => {
 const trackView = async (req, res) => {
   try {
     const { id } = req.params;
-    const post = await Post.findByIdAndUpdate(
-      id,
+    const visibilityQuery = await buildVisibilityQuery(req.userId);
+    const post = await Post.findOneAndUpdate(
+      { _id: id, ...visibilityQuery },
       { $inc: { viewCount: 1 } },
       { new: true }
     );
@@ -360,8 +428,9 @@ const trackView = async (req, res) => {
 const sharePost = async (req, res) => {
   try {
     const { id } = req.params;
-    const post = await Post.findByIdAndUpdate(
-      id,
+    const visibilityQuery = await buildVisibilityQuery(req.userId);
+    const post = await Post.findOneAndUpdate(
+      { _id: id, ...visibilityQuery },
       { $inc: { shareCount: 1, shares: 1 } },
       { new: true }
     );
@@ -420,6 +489,43 @@ const deletePost = async (req, res) => {
   }
 };
 
+// PATCH /api/posts/:id/visibility — update post visibility
+const updateVisibility = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { visibility } = req.body || {};
+
+    if (!req.userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const allowed = ['public', 'followers', 'friends', 'private'];
+    if (!allowed.includes(visibility)) {
+      return res.status(400).json({ error: 'Invalid visibility' });
+    }
+
+    const post = await Post.findById(id);
+    if (!post) return res.status(404).json({ error: 'Post not found' });
+    if (String(post.author) !== String(req.userId)) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    post.visibility = visibility;
+    await post.save();
+
+    try {
+      const io = getIO();
+      io.emit('post:visibility', { postId: String(id), visibility });
+    } catch (err) {
+      console.error('Socket emit failed:', err.message);
+    }
+
+    return res.status(200).json({ success: true, visibility });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to update visibility', details: err.message });
+  }
+};
+
 module.exports = {
   getPosts,
   getFeed,
@@ -428,4 +534,5 @@ module.exports = {
   trackView,
   sharePost,
   deletePost,
+  updateVisibility,
 };

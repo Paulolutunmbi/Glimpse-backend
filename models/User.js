@@ -107,6 +107,7 @@ const userSchema = new mongoose.Schema(
     savedPosts: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Post' }],
     isFirstLogin: { type: Boolean, default: true },
     profileCompleted: { type: Boolean, default: false },
+    onboardingCompleted: { type: Boolean, default: false },
     isVerified: { type: Boolean, default: false },
     verificationCode: { type: String, select: false },
     verificationCodeExpires: { type: Date },

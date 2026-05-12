@@ -11,6 +11,9 @@ const commentRoutes = require('./routes/commentRoutes');
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const discoveryRoutes = require('./routes/discoveryRoutes');
+const searchRoutes = require('./routes/searchRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
+const messageRoutes = require('./routes/messageRoutes');
 const emailPreviewRoutes = require('./routes/emailPreviewRoutes');
 const { verifyEmailTransport } = require('./utils/sendEmail');
 
@@ -60,6 +63,9 @@ app.use('/api/comments', commentRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/discovery', discoveryRoutes);
+app.use('/api/search', searchRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/messages', messageRoutes);
 app.use('/dev/email-preview', emailPreviewRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));

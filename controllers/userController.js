@@ -4,6 +4,8 @@ const User = require('../models/User');
 const { sendPasswordResetEmail: sendPasswordResetTemplate } = require('../utils/email/emailService');
 const { getIO } = require('../socket');
 const Post = require('../models/Post');
+const { createNotification } = require('../services/notificationService');
+const { buildVisibilityQuery } = require('../utils/visibility');
 
 const RESET_TOKEN_TTL_MS = 15 * 60 * 1000;
 
@@ -71,6 +73,7 @@ const sanitizeUser = (user) => {
     email: user.email,
     isFirstLogin: user.isFirstLogin,
     profileCompleted: user.profileCompleted,
+    onboardingCompleted: user.onboardingCompleted,
     isVerified: user.isVerified,
     createdAt: user.createdAt,
     profile: buildProfile(user),
@@ -122,15 +125,24 @@ const getUserProfile = async (req, res) => {
 const getUserProfileById = async (req, res) => {
   try {
     const { id } = req.params;
-    const user = await User.findById(id)
-      .populate('posts')
-      .populate('savedPosts');
+    const user = await User.findById(id);
 
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    return res.status(200).json({ success: true, data: buildProfilePayload(user) });
+    const visibilityQuery = await buildVisibilityQuery(req.userId);
+    const posts = await Post.find({ author: id, ...visibilityQuery }).sort({ createdAt: -1 });
+    const savedPosts = await Post.find({
+      _id: { $in: user.savedPosts || [] },
+      ...visibilityQuery,
+    }).sort({ createdAt: -1 });
+
+    const payload = buildProfilePayload(user);
+    payload.posts = posts;
+    payload.savedPosts = savedPosts;
+
+    return res.status(200).json({ success: true, data: payload });
   } catch (err) {
     return res.status(500).json({ success: false, message: 'Failed to load profile' });
   }
@@ -146,6 +158,7 @@ const updateProfile = async (req, res) => {
       preferences,
       profileCompleted,
       isFirstLogin,
+      onboardingCompleted,
     } = req.body || {};
 
     const updates = {};
@@ -208,6 +221,10 @@ const updateProfile = async (req, res) => {
 
     if (typeof isFirstLogin === 'boolean') {
       updates.isFirstLogin = isFirstLogin;
+    }
+
+    if (typeof onboardingCompleted === 'boolean') {
+      updates.onboardingCompleted = onboardingCompleted;
     }
 
     const user = await User.findById(req.userId);
@@ -567,6 +584,13 @@ const followUser = async (req, res) => {
       $inc: { 'stats.followingCount': 1 },
     });
 
+    await createNotification({
+      userId: id,
+      actorId: req.userId,
+      type: 'follow',
+      preview: 'started following you',
+    });
+
     try {
       const io = getIO();
       io.emit('followUpdated', { userId: String(id) });
@@ -619,7 +643,8 @@ const unfollowUser = async (req, res) => {
 const savePost = async (req, res) => {
   try {
     const { id } = req.params;
-    const post = await Post.findById(id);
+    const visibilityQuery = await buildVisibilityQuery(req.userId);
+    const post = await Post.findOne({ _id: id, ...visibilityQuery });
     if (!post) {
       return res.status(404).json({ success: false, message: 'Post not found' });
     }
@@ -642,6 +667,14 @@ const savePost = async (req, res) => {
     post.trendingScore = computeTrendingScore(post);
     post.scoreUpdatedAt = new Date();
     await post.save();
+
+    await createNotification({
+      userId: post.author,
+      actorId: req.userId,
+      type: 'save',
+      postId: post._id,
+      preview: 'saved your post',
+    });
 
     try {
       const io = getIO();
@@ -740,8 +773,9 @@ const getSavedMoments = async (req, res) => {
       return res.status(200).json({ data: [], nextCursor: null, hasMore: false });
     }
 
+    const visibilityQuery = await buildVisibilityQuery(req.userId);
     const cursorQuery = buildSavedCursorQuery(cursorData);
-    const posts = await Post.find({ _id: { $in: savedIds }, ...cursorQuery })
+    const posts = await Post.find({ _id: { $in: savedIds }, ...visibilityQuery, ...cursorQuery })
       .sort({ createdAt: -1, _id: -1 })
       .limit(limit + 1);
 
