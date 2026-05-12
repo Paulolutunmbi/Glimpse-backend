@@ -26,15 +26,17 @@ const auth = async (req, res, next) => {
       return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
 
-    const activeSessions = req.user.settings?.security?.activeSessions || [];
-    if (activeSessions.length > 0) {
-      const isActiveSession = activeSessions.some(
-        (session) => session?.sessionId && session.sessionId === req.sessionId
-      );
+    if (req.user.isBanned) {
+      return res.status(403).json({ success: false, message: 'Account banned' });
+    }
 
-      if (!isActiveSession) {
-        return res.status(401).json({ success: false, message: 'Unauthorized' });
-      }
+    const activeSessions = req.user.settings?.security?.activeSessions || [];
+    const isActiveSession = activeSessions.some(
+      (session) => session?.sessionId && session.sessionId === req.sessionId
+    );
+
+    if (!isActiveSession) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
 
     return next();

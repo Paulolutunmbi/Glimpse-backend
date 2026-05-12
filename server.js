@@ -15,6 +15,7 @@ const searchRoutes = require('./routes/searchRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const messageRoutes = require('./routes/messageRoutes');
 const emailPreviewRoutes = require('./routes/emailPreviewRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 const { verifyEmailTransport } = require('./utils/sendEmail');
 
 dotenv.config();
@@ -66,6 +67,7 @@ app.use('/api/discovery', discoveryRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/messages', messageRoutes);
+app.use('/api/admin', adminRoutes);
 app.use('/dev/email-preview', emailPreviewRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
