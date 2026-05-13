@@ -140,6 +140,45 @@ const getFeedCache = (key) => {
   return entry.value;
 };
 
+const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(String(value || ''));
+
+const getVisibleSourcePost = async (post, userId) => {
+  if (!post?.repostOf) return null;
+
+  const visibilityQuery = await buildVisibilityQuery(userId);
+  return Post.findOne({ _id: post.repostOf, ...visibilityQuery });
+};
+
+const getPostById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!isValidObjectId(id)) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+
+    const visibilityQuery = await buildVisibilityQuery(req.userId);
+    const post = await Post.findOne({ _id: id, ...visibilityQuery });
+
+    if (!post) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+
+    const sourcePost = await getVisibleSourcePost(post, req.userId);
+
+    return res.status(200).json({
+      success: true,
+      data: post,
+      sourcePost: sourcePost || null,
+      shareUrl: post.shareUrl,
+      canonicalUrl: post.canonicalUrl,
+      sharePath: post.sharePath,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to fetch post', details: err.message });
+  }
+};
+
 // GET /api/posts — legacy latest feed
 const getPosts = async (req, res) => {
   try {
@@ -822,6 +861,7 @@ const getReposts = async (req, res) => {
 };
 
 module.exports = {
+  getPostById,
   getPosts,
   getFeed,
   createPost,

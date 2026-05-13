@@ -96,7 +96,7 @@ const updateSettings = async (req, res) => {
       return res.status(400).json({ success: false, message: 'No valid settings updates provided' });
     }
 
-    const user = await User.findByIdAndUpdate(req.userId, { $set: updates }, { new: true })
+    const user = await User.findByIdAndUpdate(req.userId, { $set: updates }, { returnDocument: 'after' })
       .select('settings');
 
     if (!user) {
@@ -183,7 +183,7 @@ const updateControlList = async (req, res, key) => {
     const action = req.body?.action || 'add';
     const update = action === 'remove' ? { $pull: { [key]: userId } } : { $addToSet: { [key]: userId } };
 
-    const user = await User.findByIdAndUpdate(req.userId, update, { new: true })
+    const user = await User.findByIdAndUpdate(req.userId, update, { returnDocument: 'after' })
       .select(`settings.control`);
 
     if (!user) {

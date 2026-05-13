@@ -252,14 +252,14 @@ const updateProfile = async (req, res) => {
     });
 
     const updatedBase = await User.findByIdAndUpdate(req.userId, updates, {
-      new: true,
+      returnDocument: 'after',
       runValidators: true,
     })
       .populate('posts')
       .populate('savedPosts');
 
     if (Object.keys(profileUpdates).length > 0) {
-      await User.findByIdAndUpdate(req.userId, { $set: profileUpdates }, { new: true });
+      await User.findByIdAndUpdate(req.userId, { $set: profileUpdates }, { returnDocument: 'after' });
       const updatedUser = await User.findById(req.userId)
         .populate('posts')
         .populate('savedPosts');
@@ -414,7 +414,7 @@ const uploadAvatar = async (req, res) => {
           },
         }),
       },
-      { new: true, runValidators: true }
+      { returnDocument: 'after', runValidators: true }
     )
       .populate('posts')
       .populate('savedPosts');
@@ -500,7 +500,7 @@ const uploadCoverImage = async (req, res) => {
           },
         }),
       },
-      { new: true, runValidators: true }
+      { returnDocument: 'after', runValidators: true }
     )
       .populate('posts')
       .populate('savedPosts');
@@ -538,7 +538,7 @@ const updatePreferences = async (req, res) => {
           },
         }),
       },
-      { new: true, runValidators: true }
+      { returnDocument: 'after', runValidators: true }
     )
       .populate('posts')
       .populate('savedPosts');
@@ -575,7 +575,7 @@ const followUser = async (req, res) => {
         $addToSet: { followers: req.userId, 'relations.followers': req.userId },
         $inc: { 'stats.followersCount': 1 },
       },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     if (!target) {

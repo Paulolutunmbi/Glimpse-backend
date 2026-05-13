@@ -1,5 +1,16 @@
 const mongoose = require('mongoose');
 
+const getClientAppUrl = () =>
+  String(process.env.CLIENT_APP_URL || process.env.CLIENT_ORIGIN || 'http://localhost:5173')
+    .trim()
+    .replace(/\/+$/, '');
+
+const getPostRoutePrefix = () => {
+  const rawPrefix = String(process.env.CLIENT_POST_ROUTE_PREFIX || '/post').trim() || '/post';
+  const normalizedPrefix = rawPrefix.startsWith('/') ? rawPrefix : `/${rawPrefix}`;
+  return normalizedPrefix.replace(/\/+$/, '') || '/post';
+};
+
 const mediaSchema = new mongoose.Schema(
   {
     url: { type: String, required: true },
@@ -95,5 +106,20 @@ postSchema.pre('validate', function () {
     this.type = this.media[0].type === 'video' ? 'video' : 'image';
   }
 });
+
+postSchema.virtual('sharePath').get(function () {
+  return `${getPostRoutePrefix()}/${this._id}`;
+});
+
+postSchema.virtual('shareUrl').get(function () {
+  return `${getClientAppUrl()}${this.sharePath}`;
+});
+
+postSchema.virtual('canonicalUrl').get(function () {
+  return this.shareUrl;
+});
+
+postSchema.set('toJSON', { virtuals: true, versionKey: false });
+postSchema.set('toObject', { virtuals: true, versionKey: false });
 
 module.exports = mongoose.model('Post', postSchema);

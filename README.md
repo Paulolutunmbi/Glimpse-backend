@@ -20,6 +20,7 @@ Glimpse Backend is an Express and MongoDB API that powers authentication, posts,
 - Email registration, verification, login, and password reset.
 - JWT session validation with active-session tracking.
 - Post CRUD, likes, views, shares, and feed retrieval.
+- Public post hydration for shareable deep links.
 - Comment CRUD with realtime socket events.
 - User profile, follow, save, and settings APIs.
 - Discovery endpoint for trending content and suggested creators.
@@ -67,6 +68,7 @@ Glimpse Backend is an Express and MongoDB API that powers authentication, posts,
 | `CLIENT_APP_URL` | No | Canonical frontend URL used in email links |
 | `CLIENT_ORIGIN` | No | Fallback frontend URL used in email links |
 | `CLIENT_RESET_PASSWORD_URL` | No | Frontend reset-password URL, defaults to `http://localhost:3000/reset-password` |
+| `CLIENT_POST_ROUTE_PREFIX` | No | Frontend route prefix for post deep links, defaults to `/post` |
 | `VERIFY_SMTP_ON_STARTUP` | No | Set to `true` to verify SMTP connectivity at startup |
 | `SMTP_SERVICE` | No | Nodemailer service name when not using a custom host |
 | `SMTP_HOST` | No | Custom SMTP host |
@@ -140,6 +142,7 @@ The app listens on `http://localhost:5000` by default unless `PORT` is set.
 | Method | Endpoint | Description |
 | --- | --- | --- |
 | `GET` | `/api/posts` | Return public posts ordered by newest first |
+| `GET` | `/api/posts/:id` | Return a single post for deep-link hydration when visible to the viewer |
 | `GET` | `/api/posts/feed` | Return a paginated feed (`latest`, `following`, `personalized`, `trending`, `explore`) |
 | `POST` | `/api/posts` | Create a post with optional media upload |
 | `PUT` | `/api/posts/:id/like` | Toggle like state for a post |
