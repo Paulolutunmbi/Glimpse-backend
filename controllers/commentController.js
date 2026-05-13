@@ -5,6 +5,34 @@ const { getIO } = require('../socket');
 const { createNotification } = require('../services/notificationService');
 const { buildVisibilityQuery } = require('../utils/visibility');
 
+const EDIT_WINDOW_MINUTES = Math.max(
+  1,
+  Number(process.env.COMMENT_EDIT_WINDOW_MINUTES || 15)
+);
+const DELETE_WINDOW_MINUTES = Math.max(
+  1,
+  Number(process.env.COMMENT_DELETE_WINDOW_MINUTES || EDIT_WINDOW_MINUTES)
+);
+
+const addMinutes = (date, minutes) => new Date(date.getTime() + minutes * 60 * 1000);
+
+const canMutateComment = (comment, action) => {
+  const now = Date.now();
+  const limit = action === 'delete' ? comment?.deleteWindowUntil : comment?.editWindowUntil;
+  return limit ? new Date(limit).getTime() >= now : false;
+};
+
+const serializeComment = (comment, viewerId) => {
+  const payload = comment?.toObject ? comment.toObject() : comment;
+  const isOwner = String(payload?.userId || '') === String(viewerId || '');
+  return {
+    ...payload,
+    isEdited: Boolean(payload?.isEdited),
+    canEdit: isOwner ? canMutateComment(payload, 'edit') : false,
+    canDelete: isOwner ? canMutateComment(payload, 'delete') : false,
+  };
+};
+
 const createComment = async (req, res) => {
   try {
     const { postId, text } = req.body || {};
@@ -35,6 +63,8 @@ const createComment = async (req, res) => {
       username: user.username,
       avatar: user.profilePicture || user.avatar || '',
       text: trimmedText,
+      editWindowUntil: addMinutes(new Date(), EDIT_WINDOW_MINUTES),
+      deleteWindowUntil: addMinutes(new Date(), DELETE_WINDOW_MINUTES),
     });
 
     await comment.save();
@@ -52,11 +82,13 @@ const createComment = async (req, res) => {
     }
     try {
       const io = getIO();
-      io.to(String(postId)).emit('comment:created', { comment });
+      io.to(String(postId)).emit('comment:created', {
+        comment: serializeComment(comment, req.userId),
+      });
     } catch (err) {
       console.error('Socket emit failed:', err.message);
     }
-    return res.status(201).json(comment);
+    return res.status(201).json(serializeComment(comment, req.userId));
   } catch (err) {
     return res.status(500).json({ error: 'Failed to create comment', details: err.message });
   }
@@ -72,7 +104,7 @@ const getCommentsByPost = async (req, res) => {
     }
 
     const comments = await Comment.find({ postId }).sort({ createdAt: 1 });
-    return res.status(200).json(comments);
+    return res.status(200).json(comments.map((comment) => serializeComment(comment, req.userId)));
   } catch (err) {
     return res.status(500).json({ error: 'Failed to fetch comments', details: err.message });
   }
@@ -97,17 +129,27 @@ const updateComment = async (req, res) => {
       return res.status(403).json({ error: 'Unauthorized' });
     }
 
+    if (!canMutateComment(comment, 'edit')) {
+      return res.status(403).json({
+        error: `Comment can only be edited within ${EDIT_WINDOW_MINUTES} minute(s) of posting`,
+      });
+    }
+
     comment.text = trimmedText;
+    comment.isEdited = true;
+    comment.editedAt = new Date();
     await comment.save();
 
     try {
       const io = getIO();
-      io.to(String(comment.postId)).emit('comment:updated', { comment });
+      io.to(String(comment.postId)).emit('comment:updated', {
+        comment: serializeComment(comment, req.userId),
+      });
     } catch (err) {
       console.error('Socket emit failed:', err.message);
     }
 
-    return res.status(200).json({ success: true, data: comment });
+    return res.status(200).json({ success: true, data: serializeComment(comment, req.userId) });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to update comment', details: err.message });
   }
@@ -124,6 +166,12 @@ const deleteComment = async (req, res) => {
 
     if (String(req.userId) !== String(comment.userId)) {
       return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    if (!canMutateComment(comment, 'delete')) {
+      return res.status(403).json({
+        error: `Comment can only be deleted within ${DELETE_WINDOW_MINUTES} minute(s) of posting`,
+      });
     }
 
     await comment.deleteOne();

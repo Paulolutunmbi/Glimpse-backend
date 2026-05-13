@@ -836,9 +836,49 @@ const sendPasswordResetEmail = async (req, res) => {
   }
 };
 
+const getUserProfileByUsername = async (req, res) => {
+  try {
+    const { username } = req.params;
+    
+    if (!username || !username.trim()) {
+      return res.status(400).json({ success: false, message: 'Username is required' });
+    }
+
+    const user = await User.findOne({ username: username.trim().toLowerCase() });
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Check profile visibility
+    if (user.settings?.privacy?.profileVisibility === 'private' && String(user._id) !== String(req.userId)) {
+      return res.status(403).json({ success: false, message: 'This profile is private' });
+    }
+
+    const visibilityQuery = await buildVisibilityQuery(req.userId);
+    const posts = await Post.find({ author: user._id, ...visibilityQuery }).sort({ createdAt: -1 });
+    
+    const savedPosts = String(user._id) === String(req.userId) 
+      ? await Post.find({
+          _id: { $in: user.savedPosts || [] },
+          ...visibilityQuery,
+        }).sort({ createdAt: -1 })
+      : [];
+
+    const payload = buildProfilePayload(user);
+    payload.posts = posts;
+    payload.savedPosts = savedPosts;
+
+    return res.status(200).json({ success: true, data: payload });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Failed to load profile' });
+  }
+};
+
 module.exports = {
   getUserProfile,
   getUserProfileById,
+  getUserProfileByUsername,
   updateProfile,
   uploadAvatar,
   uploadCoverImage,

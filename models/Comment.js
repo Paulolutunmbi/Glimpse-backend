@@ -7,6 +7,16 @@ const commentSchema = new mongoose.Schema(
     username: { type: String, default: 'Guest' },
     avatar: { type: String, default: '' },
     text: { type: String, required: true, trim: true },
+    isEdited: { type: Boolean, default: false },
+    editedAt: { type: Date, default: null },
+    editWindowUntil: {
+      type: Date,
+      default: () => new Date(Date.now() + 15 * 60 * 1000),
+    },
+    deleteWindowUntil: {
+      type: Date,
+      default: () => new Date(Date.now() + 15 * 60 * 1000),
+    },
   },
   { timestamps: true }
 );

@@ -4,6 +4,7 @@ const { uploadProfilePicture, uploadCoverImage } = require('../middleware/upload
 const {
   getUserProfile,
   getUserProfileById,
+  getUserProfileByUsername,
   updateProfile,
   uploadAvatar,
   uploadCoverImage: uploadCoverImageController,
@@ -32,6 +33,7 @@ const {
 const router = express.Router();
 
 router.get('/me', auth, getUserProfile);
+router.get('/u/:username', getUserProfileByUsername);
 router.get('/profile/:id', auth, getUserProfileById);
 router.get('/profile/:id/stats', auth, getProfileStats);
 router.patch('/update', auth, updateProfile);

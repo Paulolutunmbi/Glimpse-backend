@@ -55,6 +55,8 @@ const postSchema = new mongoose.Schema(
     trendingScore: { type: Number, default: 0 },
     scoreUpdatedAt: { type: Date },
     repostOf: { type: mongoose.Schema.Types.ObjectId, ref: 'Post' },
+    repostCount: { type: Number, default: 0 },
+    repostedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     savedBy: { type: [String], default: [] },
   },
   { timestamps: true }
@@ -77,6 +79,8 @@ postSchema.index({ createdAt: -1 });
 postSchema.index({ author: 1, createdAt: -1 });
 postSchema.index({ visibility: 1, createdAt: -1 });
 postSchema.index({ trendingScore: -1, scoreUpdatedAt: -1 });
+postSchema.index({ repostOf: 1, createdAt: -1 });
+postSchema.index({ 'user.username': 1, createdAt: -1 });
 
 postSchema.pre('validate', function () {
   if (!this.image && this.media?.length) {
