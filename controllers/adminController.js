@@ -277,7 +277,7 @@ const unbanUser = async (req, res) => {
 
 const deleteUser = async (req, res) => {
   try {
-    const user = await User.findById(req.params.id);
+    const user = await User.findById(req.params.id).select('+profilePicturePublicId +coverImagePublicId');
 
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
@@ -287,7 +287,74 @@ const deleteUser = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Cannot delete admin account' });
     }
 
+    // gather media public ids from user's posts and profile
+    const posts = await Post.find({ author: user._id }).select('media.publicId media');
+    const postPublicIds = [];
+    for (const p of posts) {
+      if (Array.isArray(p.media)) {
+        for (const m of p.media) {
+          if (m?.publicId) postPublicIds.push(m.publicId);
+        }
+      }
+    }
+
+    const profileMediaIds = [];
+    if (user.profilePicturePublicId) profileMediaIds.push(user.profilePicturePublicId);
+    if (user.coverImagePublicId) profileMediaIds.push(user.coverImagePublicId);
+
+    // Delete posts and related media
+    try {
+      await Post.deleteMany({ author: user._id });
+    } catch (err) {
+      console.error('Failed to remove posts for deleted user:', err.message);
+    }
+
+    // Remove user from other users' follower / following lists and saved posts
+    try {
+      await User.updateMany({ followers: user._id }, { $pull: { followers: user._id }, $inc: { 'stats.followersCount': -1 } }).exec();
+      await User.updateMany({ following: user._id }, { $pull: { following: user._id }, $inc: { 'stats.followingCount': -1 } }).exec();
+      await User.updateMany({ savedPosts: { $in: user.posts || [] } }, { $pull: { savedPosts: { $in: user.posts || [] } } }).exec();
+    } catch (err) {
+      console.error('Failed to cleanup relations for deleted user:', err.message);
+    }
+
+    // Remove notifications, messages and conversations
+    const Notification = require('../models/Notification');
+    const Message = require('../models/Message');
+    const Conversation = require('../models/Conversation');
+
+    try {
+      await Notification.deleteMany({ $or: [{ user: user._id }, { actor: user._id }] });
+      await Message.deleteMany({ sender: user._id });
+
+      // For conversations that include the user, either remove them or delete conversation if no participants left
+      const convs = await Conversation.find({ participants: user._id }).select('participants');
+      for (const conv of convs) {
+        const remaining = conv.participants.filter((p) => String(p) !== String(user._id));
+        if (!remaining.length) {
+          await Message.deleteMany({ conversation: conv._id });
+          await Conversation.findByIdAndDelete(conv._id);
+        } else {
+          await Conversation.findByIdAndUpdate(conv._id, { $pull: { participants: user._id } });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to cleanup messaging/notifications for deleted user:', err.message);
+    }
+
+    // finally delete user document
     await User.findByIdAndDelete(user._id);
+
+    // cleanup cloudinary assets (profile + post media)
+    try {
+      const { deleteMediaAssets } = require('../services/mediaService');
+      const toDelete = [...new Set([...(postPublicIds || []), ...(profileMediaIds || [])])].filter(Boolean);
+      if (toDelete.length) {
+        await deleteMediaAssets(toDelete);
+      }
+    } catch (err) {
+      console.error('Failed to cleanup media assets for deleted user:', err.message);
+    }
 
     try {
       const io = getIO();
@@ -299,6 +366,7 @@ const deleteUser = async (req, res) => {
 
     return res.status(200).json({ success: true });
   } catch (err) {
+    console.error('deleteUser error:', err.message);
     return res.status(500).json({ success: false, message: 'Failed to delete user' });
   }
 };

@@ -66,15 +66,6 @@ const updateTrendingScore = async (post) => {
   return nextScore;
 };
 
-const emitAdminAnalyticsUpdated = () => {
-  try {
-    const io = getIO();
-    io.to('admin').emit('admin:analyticsUpdated', { at: new Date().toISOString() });
-  } catch (err) {
-    console.error('Socket emit failed:', err.message);
-  }
-};
-
 const parseCursor = (cursor) => {
   if (!cursor) return null;
   const parts = String(cursor).split('|');
@@ -140,42 +131,276 @@ const getFeedCache = (key) => {
   return entry.value;
 };
 
-const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(String(value || ''));
+const buildAuthorSnapshot = (author) => ({
+  username: author?.username || author?.name || '',
+  name: author?.fullName || author?.name || '',
+  avatar: author?.profile?.avatar || author?.profilePicture || author?.avatar || '',
+  location: author?.extraInfo || '',
+});
 
-const getVisibleSourcePost = async (post, userId) => {
-  if (!post?.repostOf) return null;
+const applyPostBodyUpdates = (post, body = {}) => {
+  const {
+    caption,
+    title,
+    location,
+    category,
+    tags,
+    hashtags,
+    mentions,
+    visibility,
+    image,
+    media,
+    duration,
+    quote,
+  } = body;
 
-  const visibilityQuery = await buildVisibilityQuery(userId);
-  return Post.findOne({ _id: post.repostOf, ...visibilityQuery });
+  if (typeof caption === 'string') post.caption = caption;
+  if (typeof title === 'string') post.title = title;
+  if (typeof location === 'string') post.location = location;
+  if (typeof category === 'string') post.category = category;
+  if (typeof duration === 'string') post.duration = duration;
+  if (typeof quote === 'string') post.quote = quote;
+
+  if (visibility) {
+    post.visibility = visibility;
+  }
+
+  const normalizedTags = normalizeList(tags).map((tag) => tag.toLowerCase());
+  if (normalizedTags.length) {
+    post.tags = normalizedTags;
+  }
+
+  const combinedHashtags = [
+    ...new Set([
+      ...normalizeList(hashtags).map((tag) => tag.toLowerCase()),
+      ...extractHashtags(caption),
+    ]),
+  ];
+  if (combinedHashtags.length) {
+    post.hashtags = combinedHashtags;
+  }
+
+  const combinedMentions = [
+    ...new Set([
+      ...normalizeList(mentions).map((tag) => tag.toLowerCase()),
+      ...extractMentions(caption),
+    ]),
+  ];
+  if (combinedMentions.length) {
+    post.mentions = combinedMentions;
+  }
+
+  if (Array.isArray(media) && media.length) {
+    post.media = media;
+    post.image = media[0]?.url || post.image || '';
+  } else if (typeof image === 'string') {
+    post.image = image;
+    if (!post.media?.length) {
+      post.media = [{ url: image, alt: title || caption || 'Moment image' }];
+    }
+  }
 };
 
+const attachUploadedMedia = async (req, postId, userId) => {
+  const mediaFiles = [
+    ...(req.files?.image || []),
+    ...(req.files?.media || []),
+    ...(req.files?.video || []),
+  ];
+
+  if (!mediaFiles.length) {
+    return [];
+  }
+
+  return uploadPostMedia(mediaFiles, { postId, userId });
+};
+
+// GET /api/posts/:id — fetch a single post
 const getPostById = async (req, res) => {
   try {
-    const { id } = req.params;
-
-    if (!isValidObjectId(id)) {
-      return res.status(404).json({ error: 'Post not found' });
-    }
-
     const visibilityQuery = await buildVisibilityQuery(req.userId);
-    const post = await Post.findOne({ _id: id, ...visibilityQuery });
+    const post = await Post.findOne({ _id: req.params.id, ...visibilityQuery });
 
     if (!post) {
       return res.status(404).json({ error: 'Post not found' });
     }
 
-    const sourcePost = await getVisibleSourcePost(post, req.userId);
-
-    return res.status(200).json({
-      success: true,
-      data: post,
-      sourcePost: sourcePost || null,
-      shareUrl: post.shareUrl,
-      canonicalUrl: post.canonicalUrl,
-      sharePath: post.sharePath,
-    });
+    return res.status(200).json(post);
   } catch (err) {
     return res.status(500).json({ error: 'Failed to fetch post', details: err.message });
+  }
+};
+
+// PATCH /api/posts/:id — update a post
+const updatePost = async (req, res) => {
+  const author = req.user;
+  if (!author) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  try {
+    const post = await Post.findById(req.params.id);
+    if (!post) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+
+    if (String(post.author) !== String(author._id)) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    const allowedVisibility = ['public', 'followers', 'friends', 'private'];
+    if (req.body?.visibility && !allowedVisibility.includes(req.body.visibility)) {
+      return res.status(400).json({ error: 'Invalid visibility option' });
+    }
+
+    const uploadedMedia = await attachUploadedMedia(req, post._id, author._id);
+    if (uploadedMedia.length) {
+      post.media = uploadedMedia;
+      post.image = uploadedMedia[0]?.url || post.image || '';
+    }
+
+    applyPostBodyUpdates(post, req.body || {});
+
+    await post.save();
+    return res.status(200).json(post);
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to update post', details: err.message });
+  }
+};
+
+// POST /api/posts/:id/repost — create a repost for the current user
+const createRepost = async (req, res) => {
+  const author = req.user;
+  if (!author) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  try {
+    const visibilityQuery = await buildVisibilityQuery(req.userId);
+    const originalPost = await Post.findOne({ _id: req.params.id, ...visibilityQuery });
+
+    if (!originalPost) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+
+    const existingRepost = await Post.findOne({
+      repostOf: originalPost._id,
+      author: author._id,
+    });
+
+    if (existingRepost) {
+      return res.status(200).json({ success: true, reposted: true, post: existingRepost });
+    }
+
+    const repost = new Post({
+      author: author._id,
+      user: buildAuthorSnapshot(author),
+      visibility: 'public',
+      title: originalPost.title || '',
+      caption: String(req.body?.caption || '').trim() || originalPost.caption || '',
+      location: originalPost.location || '',
+      category: originalPost.category || '',
+      tags: originalPost.tags || [],
+      hashtags: originalPost.hashtags || [],
+      mentions: originalPost.mentions || [],
+      duration: originalPost.duration || '',
+      media: originalPost.media || [],
+      image: originalPost.image || '',
+      repostOf: originalPost._id,
+    });
+
+    await repost.save();
+
+    await Promise.all([
+      Post.updateOne(
+        { _id: originalPost._id },
+        { $inc: { repostCount: 1 }, $addToSet: { repostedBy: author._id } }
+      ),
+      User.findByIdAndUpdate(author._id, {
+        $addToSet: { posts: repost._id },
+        $inc: { 'stats.postsCount': 1 },
+      }),
+    ]);
+
+    try {
+      const io = getIO();
+      io.emit('post:reposted', {
+        postId: String(originalPost._id),
+        repostId: String(repost._id),
+        repostCount: (originalPost.repostCount || 0) + 1,
+        userId: String(author._id),
+      });
+    } catch (err) {
+      console.error('Socket emit failed:', err.message);
+    }
+
+    return res.status(201).json({ success: true, repost });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to create repost', details: err.message });
+  }
+};
+
+// DELETE /api/posts/:id/repost — remove the current user's repost
+const removeRepost = async (req, res) => {
+  const author = req.user;
+  if (!author) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  try {
+    const repost = await Post.findOne({
+      repostOf: req.params.id,
+      author: author._id,
+    });
+
+    if (!repost) {
+      return res.status(404).json({ error: 'Repost not found' });
+    }
+
+    await repost.deleteOne();
+
+    const originalPost = await Post.findById(req.params.id);
+    if (originalPost) {
+      originalPost.repostCount = Math.max(0, (originalPost.repostCount || 0) - 1);
+      originalPost.repostedBy = (originalPost.repostedBy || []).filter(
+        (userId) => String(userId) !== String(author._id)
+      );
+      await originalPost.save();
+    }
+
+    await User.findByIdAndUpdate(author._id, {
+      $pull: { posts: repost._id },
+      $inc: { 'stats.postsCount': -1 },
+    });
+
+    try {
+      const io = getIO();
+      io.emit('post:unreposted', {
+        postId: String(req.params.id),
+        repostId: String(repost._id),
+        repostCount: originalPost ? originalPost.repostCount : 0,
+        userId: String(author._id),
+      });
+    } catch (err) {
+      console.error('Socket emit failed:', err.message);
+    }
+
+    return res.status(200).json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to remove repost', details: err.message });
+  }
+};
+
+// GET /api/posts/:id/reposts — list reposts for a post
+const getReposts = async (req, res) => {
+  try {
+    const reposts = await Post.find({ repostOf: req.params.id })
+      .sort({ createdAt: -1 })
+      .populate('author', 'name username avatar profilePicture fullName');
+
+    return res.status(200).json({ data: reposts, count: reposts.length });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to load reposts', details: err.message });
   }
 };
 
@@ -225,6 +450,7 @@ const getFeed = async (req, res) => {
           ],
         },
       ];
+
     }
 
     if (type === 'personalized') {
@@ -383,8 +609,6 @@ const createPost = async (req, res) => {
       console.error('Socket emit failed:', err.message);
     }
 
-    emitAdminAnalyticsUpdated();
-
     return res.status(201).json(post);
   } catch (err) {
     if (uploadedMedia.length) {
@@ -396,108 +620,6 @@ const createPost = async (req, res) => {
       }
     }
     return res.status(500).json({ error: 'Failed to create post', details: err.message });
-  }
-};
-
-// PATCH /api/posts/:id — update an existing post
-const updatePost = async (req, res) => {
-  const userId = req.userId;
-  if (!userId) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-
-  let uploadedMedia = [];
-
-  try {
-    const { id } = req.params;
-    const { caption, location, visibility, hashtags, removeMedia } = req.body || {};
-
-    const post = await Post.findById(id);
-    if (!post) return res.status(404).json({ error: 'Post not found' });
-    if (String(post.author) !== String(userId)) {
-      return res.status(403).json({ error: 'Unauthorized' });
-    }
-
-    const allowedVisibility = ['public', 'followers', 'friends', 'private'];
-    if (typeof visibility !== 'undefined' && !allowedVisibility.includes(visibility)) {
-      return res.status(400).json({ error: 'Invalid visibility option' });
-    }
-
-    const mediaFiles = [
-      ...(req.files?.image || []),
-      ...(req.files?.media || []),
-      ...(req.files?.video || []),
-    ];
-
-    if (mediaFiles.length) {
-      uploadedMedia = await uploadPostMedia(mediaFiles, {
-        postId: post._id,
-        userId,
-      });
-    }
-
-    const shouldRemoveMedia = String(removeMedia || '').toLowerCase() === 'true';
-    const replacingMedia = shouldRemoveMedia || uploadedMedia.length > 0;
-    const oldMediaPublicIds = replacingMedia
-      ? post.media?.map((item) => item.publicId).filter(Boolean) || []
-      : [];
-
-    if (typeof caption === 'string') {
-      post.caption = caption.trim();
-      post.mentions = [...new Set(extractMentions(post.caption))];
-    }
-    if (typeof location === 'string') {
-      post.location = location.trim();
-    }
-    if (typeof visibility === 'string') {
-      post.visibility = visibility;
-    }
-    if (typeof hashtags !== 'undefined') {
-      post.hashtags = [...new Set(normalizeList(hashtags).map((tag) => tag.toLowerCase()))];
-    } else if (typeof caption === 'string') {
-      post.hashtags = [...new Set(extractHashtags(post.caption))];
-    }
-
-    if (replacingMedia) {
-      if (uploadedMedia.length) {
-        post.media = uploadedMedia;
-        post.image = uploadedMedia[0]?.thumbnailUrl || uploadedMedia[0]?.url || '';
-      } else {
-        post.media = [];
-        post.image = '';
-      }
-    }
-
-    await post.save();
-
-    if (oldMediaPublicIds.length) {
-      try {
-        await deleteMediaAssets(oldMediaPublicIds);
-      } catch (err) {
-        console.error('Failed to cleanup Cloudinary assets:', err.message);
-      }
-    }
-
-    try {
-      const io = getIO();
-      io.emit('post:updated', { post });
-    } catch (err) {
-      console.error('Socket emit failed:', err.message);
-    }
-
-    emitAdminAnalyticsUpdated();
-
-    return res.status(200).json({ success: true, data: post });
-  } catch (err) {
-    if (uploadedMedia.length) {
-      const publicIds = uploadedMedia.map((item) => item.publicId).filter(Boolean);
-      try {
-        await deleteMediaAssets(publicIds);
-      } catch (cleanupErr) {
-        console.error('Failed to cleanup Cloudinary assets:', cleanupErr.message);
-      }
-    }
-    return res.status(500).json({ error: 'Failed to update post', details: err.message });
   }
 };
 
@@ -625,12 +747,9 @@ const deletePost = async (req, res) => {
     try {
       const io = getIO();
       io.emit('postDeleted', { postId: String(id), userId: String(userId) });
-      io.emit('post:deleted', { postId: String(id), userId: String(userId) });
     } catch (err) {
       console.error('Socket emit failed:', err.message);
     }
-
-    emitAdminAnalyticsUpdated();
 
     return res.status(200).json({ success: true, postId: id });
   } catch (err) {
@@ -672,191 +791,6 @@ const updateVisibility = async (req, res) => {
     return res.status(200).json({ success: true, visibility });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to update visibility', details: err.message });
-  }
-};
-
-// POST /api/posts/:id/repost — create a repost
-const createRepost = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const userId = req.userId;
-
-    if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    // Check if original post exists and user can see it
-    const visibilityQuery = await buildVisibilityQuery(userId);
-    const originalPost = await Post.findOne({ _id: id, ...visibilityQuery });
-    if (!originalPost) return res.status(404).json({ error: 'Post not found' });
-
-    // Check if user already reposted this
-    const existingRepost = await Post.findOne({
-      repostOf: id,
-      author: userId,
-    });
-    if (existingRepost) {
-      return res.status(400).json({ error: 'You already reposted this post' });
-    }
-
-    const author = await User.findById(userId);
-    if (!author) return res.status(401).json({ error: 'User not found' });
-
-    // Create repost post
-    const repost = new Post({
-      author: userId,
-      user: {
-        username: author.username || author.name,
-        name: author.fullName || author.name || '',
-        avatar: author.profile?.avatar || author.profilePicture || author.avatar || '',
-        location: author.extraInfo || '',
-      },
-      repostOf: id,
-      visibility: 'public',
-      type: originalPost.type,
-      caption: req.body?.caption || '',
-      media: originalPost.media,
-      image: originalPost.image,
-      title: originalPost.title,
-      category: originalPost.category,
-      tags: originalPost.tags,
-      hashtags: originalPost.hashtags,
-      mentions: originalPost.mentions,
-    });
-
-    await repost.save();
-    
-    // Update original post repost count
-    await Post.findByIdAndUpdate(id, {
-      $inc: { repostCount: 1 },
-      $addToSet: { repostedBy: userId },
-    });
-
-    // Update user posts
-    await User.findByIdAndUpdate(userId, {
-      $addToSet: { posts: repost._id },
-      $inc: { 'stats.postsCount': 1 },
-    });
-
-    // Create notification for original post author
-    if (String(originalPost.author) !== String(userId)) {
-      await createNotification({
-        userId: originalPost.author,
-        actorId: userId,
-        type: 'repost',
-        postId: originalPost._id,
-        preview: 'reposted your post',
-      });
-    }
-
-    // Emit socket event
-    try {
-      const io = getIO();
-      io.emit('post:reposted', {
-        originalPostId: String(id),
-        repostId: String(repost._id),
-        repostCount: originalPost.repostCount + 1,
-        userId: String(userId),
-      });
-    } catch (err) {
-      console.error('Socket emit failed:', err.message);
-    }
-
-    return res.status(201).json(repost);
-  } catch (err) {
-    return res.status(500).json({ error: 'Failed to create repost', details: err.message });
-  }
-};
-
-// DELETE /api/posts/:id/repost — remove a repost
-const removeRepost = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const userId = req.userId;
-
-    if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    // Find the repost
-    const repost = await Post.findOne({
-      repostOf: id,
-      author: userId,
-    });
-
-    if (!repost) {
-      return res.status(404).json({ error: 'Repost not found' });
-    }
-
-    // Delete the repost
-    await Post.findByIdAndDelete(repost._id);
-    
-    // Update original post
-    await Post.findByIdAndUpdate(id, {
-      $inc: { repostCount: -1 },
-      $pull: { repostedBy: userId },
-    });
-
-    // Update user posts
-    await User.findByIdAndUpdate(userId, {
-      $pull: { posts: repost._id },
-      $inc: { 'stats.postsCount': -1 },
-    });
-
-    // Emit socket event
-    try {
-      const io = getIO();
-      io.emit('post:unreposted', {
-        originalPostId: String(id),
-        repostId: String(repost._id),
-        userId: String(userId),
-      });
-    } catch (err) {
-      console.error('Socket emit failed:', err.message);
-    }
-
-    return res.status(200).json({ success: true, repostId: repost._id });
-  } catch (err) {
-    return res.status(500).json({ error: 'Failed to remove repost', details: err.message });
-  }
-};
-
-// GET /api/posts/:id/reposts — get reposts of a post
-const getReposts = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const limit = Math.min(Number(req.query.limit) || DEFAULT_LIMIT, MAX_LIMIT);
-    const cursor = req.query.cursor;
-
-    const visibilityQuery = await buildVisibilityQuery(req.userId);
-    
-    // Check if original post exists
-    const originalPost = await Post.findOne({ _id: id, ...visibilityQuery });
-    if (!originalPost) return res.status(404).json({ error: 'Post not found' });
-
-    const cursorData = parseCursor(cursor);
-    const cursorQuery = buildCursorQuery(cursorData);
-
-    const reposts = await Post.find({
-      repostOf: id,
-      ...visibilityQuery,
-      ...cursorQuery,
-    })
-      .sort({ createdAt: -1 })
-      .limit(limit + 1);
-
-    const hasMore = reposts.length > limit;
-    const sliced = hasMore ? reposts.slice(0, limit) : reposts;
-    const nextCursor = hasMore ? buildCursor(sliced[sliced.length - 1]) : null;
-
-    return res.status(200).json({
-      data: sliced,
-      nextCursor,
-      hasMore,
-      repostCount: originalPost.repostCount || 0,
-    });
-  } catch (err) {
-    return res.status(500).json({ error: 'Failed to fetch reposts', details: err.message });
   }
 };
 
