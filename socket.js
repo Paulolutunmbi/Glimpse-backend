@@ -73,6 +73,35 @@ const initSocket = (httpServer, options = {}) => {
         socket.leave(`conversation:${conversationId}`);
       }
     });
+
+    // Group chat events
+    socket.on('joinGroupChat', (groupId) => {
+      if (groupId) {
+        socket.join(`group:${groupId}`);
+      }
+    });
+
+    socket.on('leaveGroupChat', (groupId) => {
+      if (groupId) {
+        socket.leave(`group:${groupId}`);
+      }
+    });
+
+    socket.on('user:typing', (data) => {
+      const { groupId } = data || {};
+      if (groupId) {
+        socket.to(`group:${groupId}`).emit('user:typing', {
+          userId: socket.data.userId,
+          groupId,
+        });
+      }
+    });
+
+    socket.on('disconnecting', () => {
+      socket.leave(String(socket.data?.userId || ''));
+      socket.leave('admin');
+      socket.removeAllListeners();
+    });
   });
 
   return io;

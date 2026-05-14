@@ -14,6 +14,15 @@ const buildSystemSnapshot = () => ({
   avatar: '',
 });
 
+const buildNotificationKey = ({ userId, actorId, type, postId, commentId, messageId }) => {
+  const key = { user: userId, type };
+  if (actorId) key.actor = actorId;
+  if (postId) key.post = postId;
+  if (commentId) key.comment = commentId;
+  if (messageId) key.message = messageId;
+  return key;
+};
+
 const createNotification = async ({
   userId,
   actorId,
@@ -27,18 +36,25 @@ const createNotification = async ({
     if (!userId || !type) return null;
     if (actorId && String(userId) === String(actorId)) return null;
 
-    const actor = actorId ? await User.findById(actorId).select('name fullName username avatar profile profilePicture') : null;
+    const actor = actorId
+      ? await User.findById(actorId)
+          .select('name fullName username avatar profile profilePicture')
+          .lean()
+      : null;
 
-    const notification = await Notification.create({
-      user: userId,
-      actor: actorId || undefined,
-      type,
-      post: postId || undefined,
-      comment: commentId || undefined,
-      message: messageId || undefined,
-      actorSnapshot: buildActorSnapshot(actor),
-      preview: preview || '',
-    });
+    const update = {
+      $set: {
+        actorSnapshot: buildActorSnapshot(actor),
+        preview: preview || '',
+      },
+      $setOnInsert: buildNotificationKey({ userId, actorId, type, postId, commentId, messageId }),
+    };
+
+    const notification = await Notification.findOneAndUpdate(
+      buildNotificationKey({ userId, actorId, type, postId, commentId, messageId }),
+      update,
+      { upsert: true, returnDocument: 'after' }
+    );
 
     try {
       const io = getIO();
@@ -62,12 +78,20 @@ const createAdminNotification = async ({ type = 'admin', preview, meta }) => {
     const adminUser = await User.findOne({ email: adminEmail });
     if (!adminUser) return null;
 
-    const notification = await Notification.create({
-      user: adminUser._id,
-      type,
-      actorSnapshot: buildSystemSnapshot(),
-      preview: preview || 'Admin alert',
-    });
+    const notification = await Notification.findOneAndUpdate(
+      { user: adminUser._id, type },
+      {
+        $set: {
+          actorSnapshot: buildSystemSnapshot(),
+          preview: preview || 'Admin alert',
+        },
+        $setOnInsert: {
+          user: adminUser._id,
+          type,
+        },
+      },
+      { upsert: true, returnDocument: 'after' }
+    );
 
     try {
       const io = getIO();

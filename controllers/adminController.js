@@ -1,5 +1,10 @@
 const User = require('../models/User');
 const Post = require('../models/Post');
+const Comment = require('../models/Comment');
+const Notification = require('../models/Notification');
+const Message = require('../models/Message');
+const Conversation = require('../models/Conversation');
+const { deleteMediaAssets } = require('../services/mediaService');
 const { isAdminEmail } = require('../utils/admin');
 const { getIO } = require('../socket');
 
@@ -43,6 +48,11 @@ const buildUserSummary = (user) => {
       lastAdminAttemptRoute: user.adminAccess?.lastAttemptRoute || '',
     },
     attemptsRemaining,
+    actionPermissions: {
+      canBan: !isAdminEmail(user.email) && !user.isBanned,
+      canUnban: !isAdminEmail(user.email) && Boolean(user.isBanned),
+      canDelete: !isAdminEmail(user.email),
+    },
     lastActiveAt: lastActiveAt || null,
     stats: user.stats || {},
     violations: user.violations || [],
@@ -71,6 +81,16 @@ const verifyAdmin = async (req, res) => {
   return res.status(200).json({ success: true, admin: true });
 };
 
+const emitAdminStateChange = (eventName, payload = {}) => {
+  try {
+    const io = getIO();
+    io.to('admin').emit(eventName, payload);
+    io.to('admin').emit('admin:analyticsUpdated', { at: new Date().toISOString() });
+  } catch (err) {
+    console.error('Socket emit failed:', err.message);
+  }
+};
+
 const listUsers = async (req, res) => {
   try {
     const page = Math.max(1, Number(req.query.page) || 1);
@@ -88,7 +108,8 @@ const listUsers = async (req, res) => {
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
-      .select('name fullName username email createdAt isBanned banReason bannedAt stats adminAccess settings violations profile avatar profilePicture followers following relations');
+      .select('name fullName username email createdAt isBanned banReason bannedAt stats adminAccess settings violations profile avatar profilePicture followers following relations')
+      .lean();
 
     const data = users.map(buildUserSummary);
 
@@ -110,7 +131,8 @@ const listUsers = async (req, res) => {
 const getUserDetails = async (req, res) => {
   try {
     const user = await User.findById(req.params.id)
-      .select('name fullName username email createdAt isBanned banReason bannedAt stats adminAccess settings violations profile avatar profilePicture followers following relations');
+      .select('name fullName username email createdAt isBanned banReason bannedAt stats adminAccess settings violations profile avatar profilePicture followers following relations')
+      .lean();
 
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
@@ -127,19 +149,27 @@ const getAnalytics = async (req, res) => {
     const days = Math.min(Math.max(Number(req.query.days) || 14, 7), 90);
     const since = getDateNDaysAgo(days);
 
-    const [
-      totalUsers,
-      totalPosts,
-      totalReels,
-      bannedUsers,
-      joinedRaw,
-      activePostersRaw,
-      dailyActiveUsers,
-    ] = await Promise.all([
-      User.countDocuments({}),
-      Post.countDocuments({}),
-      Post.countDocuments({ type: 'video' }),
-      User.countDocuments({ isBanned: true }),
+    const [userTotals, postTotals, joinedRaw, activePostersRaw, dailyActiveUsers] = await Promise.all([
+      User.aggregate([
+        {
+          $group: {
+            _id: null,
+            totalUsers: { $sum: 1 },
+            bannedUsers: {
+              $sum: { $cond: [{ $eq: ['$isBanned', true] }, 1, 0] },
+            },
+          },
+        },
+      ]),
+      Post.aggregate([
+        {
+          $group: {
+            _id: null,
+            totalPosts: { $sum: 1 },
+            totalReels: { $sum: { $cond: [{ $eq: ['$type', 'video'] }, 1, 0] } },
+          },
+        },
+      ]),
       User.aggregate([
         { $match: { createdAt: { $gte: since } } },
         {
@@ -184,6 +214,11 @@ const getAnalytics = async (req, res) => {
         },
       }),
     ]);
+
+    const totalUsers = userTotals?.[0]?.totalUsers || 0;
+    const bannedUsers = userTotals?.[0]?.bannedUsers || 0;
+    const totalPosts = postTotals?.[0]?.totalPosts || 0;
+    const totalReels = postTotals?.[0]?.totalReels || 0;
 
     const usersJoinedMap = new Map(joinedRaw.map((item) => [item._id, item.count]));
     const activePostersMap = new Map(activePostersRaw.map((item) => [item._id, item.count]));
@@ -232,13 +267,7 @@ const banUser = async (req, res) => {
 
     await user.save({ validateBeforeSave: false });
 
-    try {
-      const io = getIO();
-      io.to('admin').emit('admin:userUpdated', { user: buildUserSummary(user) });
-      io.to('admin').emit('admin:analyticsUpdated', { at: new Date().toISOString() });
-    } catch (err) {
-      console.error('Socket emit failed:', err.message);
-    }
+    emitAdminStateChange('admin:userUpdated', { user: buildUserSummary(user) });
 
     return res.status(200).json({ success: true, data: buildUserSummary(user) });
   } catch (err) {
@@ -261,13 +290,7 @@ const unbanUser = async (req, res) => {
     user.adminAccess = { attempts: 0 };
     await user.save({ validateBeforeSave: false });
 
-    try {
-      const io = getIO();
-      io.to('admin').emit('admin:userUpdated', { user: buildUserSummary(user) });
-      io.to('admin').emit('admin:analyticsUpdated', { at: new Date().toISOString() });
-    } catch (err) {
-      console.error('Socket emit failed:', err.message);
-    }
+    emitAdminStateChange('admin:userUpdated', { user: buildUserSummary(user) });
 
     return res.status(200).json({ success: true, data: buildUserSummary(user) });
   } catch (err) {
@@ -277,7 +300,9 @@ const unbanUser = async (req, res) => {
 
 const deleteUser = async (req, res) => {
   try {
-    const user = await User.findById(req.params.id).select('+profilePicturePublicId +coverImagePublicId');
+    const user = await User.findById(req.params.id)
+      .select('email username name fullName profilePicturePublicId coverImagePublicId avatar profile settings stats followers following savedPosts posts')
+      .lean();
 
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
@@ -287,82 +312,82 @@ const deleteUser = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Cannot delete admin account' });
     }
 
-    // gather media public ids from user's posts and profile
-    const posts = await Post.find({ author: user._id }).select('media.publicId media');
-    const postPublicIds = [];
-    for (const p of posts) {
-      if (Array.isArray(p.media)) {
-        for (const m of p.media) {
-          if (m?.publicId) postPublicIds.push(m.publicId);
+    const posts = await Post.find({ author: user._id }).select('media.publicId media').lean();
+    const postIds = posts.map((post) => post._id);
+    const relatedComments = await Comment.find({
+      $or: [{ postId: { $in: postIds } }, { userId: String(user._id) }],
+    })
+      .select('_id')
+      .lean();
+    const commentIds = relatedComments.map((comment) => comment._id);
+    const mediaPublicIds = new Set([user.profilePicturePublicId, user.coverImagePublicId]);
+
+    posts.forEach((post) => {
+      (post.media || []).forEach((media) => {
+        if (media?.publicId) {
+          mediaPublicIds.add(media.publicId);
         }
-      }
-    }
+      });
+    });
 
-    const profileMediaIds = [];
-    if (user.profilePicturePublicId) profileMediaIds.push(user.profilePicturePublicId);
-    if (user.coverImagePublicId) profileMediaIds.push(user.coverImagePublicId);
+    await Promise.all([
+      Post.deleteMany({ author: user._id }),
+      Comment.deleteMany({ postId: { $in: postIds } }),
+      Comment.deleteMany({ userId: String(user._id) }),
+      Notification.deleteMany({
+        $or: [
+          { user: user._id },
+          { actor: user._id },
+          { post: { $in: postIds } },
+          { comment: { $in: commentIds } },
+        ],
+      }),
+      Message.deleteMany({ sender: user._id }),
+      User.updateMany(
+        { followers: user._id },
+        { $pull: { followers: user._id }, $inc: { 'stats.followersCount': -1 } }
+      ),
+      User.updateMany(
+        { following: user._id },
+        { $pull: { following: user._id }, $inc: { 'stats.followingCount': -1 } }
+      ),
+      User.updateMany(
+        { savedPosts: { $in: postIds } },
+        { $pull: { savedPosts: { $in: postIds } } }
+      ),
+    ]);
 
-    // Delete posts and related media
-    try {
-      await Post.deleteMany({ author: user._id });
-    } catch (err) {
-      console.error('Failed to remove posts for deleted user:', err.message);
-    }
+    const conversations = await Conversation.find({ participants: user._id }).select('participants').lean();
+    await Promise.all(
+      conversations.map(async (conversation) => {
+        const remainingParticipants = (conversation.participants || []).filter(
+          (participant) => String(participant) !== String(user._id)
+        );
 
-    // Remove user from other users' follower / following lists and saved posts
-    try {
-      await User.updateMany({ followers: user._id }, { $pull: { followers: user._id }, $inc: { 'stats.followersCount': -1 } }).exec();
-      await User.updateMany({ following: user._id }, { $pull: { following: user._id }, $inc: { 'stats.followingCount': -1 } }).exec();
-      await User.updateMany({ savedPosts: { $in: user.posts || [] } }, { $pull: { savedPosts: { $in: user.posts || [] } } }).exec();
-    } catch (err) {
-      console.error('Failed to cleanup relations for deleted user:', err.message);
-    }
-
-    // Remove notifications, messages and conversations
-    const Notification = require('../models/Notification');
-    const Message = require('../models/Message');
-    const Conversation = require('../models/Conversation');
-
-    try {
-      await Notification.deleteMany({ $or: [{ user: user._id }, { actor: user._id }] });
-      await Message.deleteMany({ sender: user._id });
-
-      // For conversations that include the user, either remove them or delete conversation if no participants left
-      const convs = await Conversation.find({ participants: user._id }).select('participants');
-      for (const conv of convs) {
-        const remaining = conv.participants.filter((p) => String(p) !== String(user._id));
-        if (!remaining.length) {
-          await Message.deleteMany({ conversation: conv._id });
-          await Conversation.findByIdAndDelete(conv._id);
-        } else {
-          await Conversation.findByIdAndUpdate(conv._id, { $pull: { participants: user._id } });
+        if (remainingParticipants.length === 0) {
+          await Message.deleteMany({ conversation: conversation._id });
+          await Conversation.findByIdAndDelete(conversation._id);
+          return;
         }
-      }
-    } catch (err) {
-      console.error('Failed to cleanup messaging/notifications for deleted user:', err.message);
-    }
 
-    // finally delete user document
+        await Conversation.findByIdAndUpdate(conversation._id, {
+          $pull: { participants: user._id },
+        });
+      })
+    );
+
     await User.findByIdAndDelete(user._id);
 
-    // cleanup cloudinary assets (profile + post media)
-    try {
-      const { deleteMediaAssets } = require('../services/mediaService');
-      const toDelete = [...new Set([...(postPublicIds || []), ...(profileMediaIds || [])])].filter(Boolean);
-      if (toDelete.length) {
+    const toDelete = [...mediaPublicIds].filter(Boolean);
+    if (toDelete.length) {
+      try {
         await deleteMediaAssets(toDelete);
+      } catch (err) {
+        console.error('Failed to cleanup media assets for deleted user:', err.message);
       }
-    } catch (err) {
-      console.error('Failed to cleanup media assets for deleted user:', err.message);
     }
 
-    try {
-      const io = getIO();
-      io.to('admin').emit('admin:userDeleted', { userId: String(user._id) });
-      io.to('admin').emit('admin:analyticsUpdated', { at: new Date().toISOString() });
-    } catch (err) {
-      console.error('Socket emit failed:', err.message);
-    }
+    emitAdminStateChange('admin:userDeleted', { userId: String(user._id) });
 
     return res.status(200).json({ success: true });
   } catch (err) {
