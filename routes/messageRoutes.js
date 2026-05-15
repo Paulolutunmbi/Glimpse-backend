@@ -11,13 +11,6 @@ const groupChatController = require('../controllers/groupChatController');
 
 const router = express.Router();
 
-// One-to-one conversation routes
-router.get('/conversations', auth, getConversations);
-router.post('/conversations', auth, createConversation);
-router.get('/:id', auth, getMessages);
-router.post('/:id', auth, sendMessage);
-router.patch('/:id/read', auth, markConversationRead);
-
 // Group chat routes
 router.post('/groups', auth, groupChatController.createGroupChat);
 router.get('/groups', auth, groupChatController.getGroupChats);
@@ -37,5 +30,12 @@ router.delete('/groups/:groupId/leave', auth, groupChatController.leaveGroupChat
 // Group admin operations
 router.patch('/groups/:groupId/members/:userId/promote', auth, groupChatController.promoteToAdmin);
 router.patch('/groups/:groupId/members/:userId/demote', auth, groupChatController.demoteFromAdmin);
+
+// One-to-one conversation routes
+router.get('/conversations', auth, getConversations);
+router.post('/conversations', auth, createConversation);
+router.get('/:id', auth, getMessages);
+router.post('/:id', auth, sendMessage);
+router.patch('/:id/read', auth, markConversationRead);
 
 module.exports = router;
