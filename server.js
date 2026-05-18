@@ -35,35 +35,34 @@ const app = express();
 
 const allowedOrigins = (process.env.CLIENT_ORIGINS || '')
   .split(',')
-  .map((v) => v.trim())
+  .map((o) => o.trim())
   .filter(Boolean);
 
-const basePort = Number(process.env.CLIENT_ORIGIN_BASE_PORT);
+const vercelOrigin = 'https://glimpse-theta-swart.vercel.app';
+if (!allowedOrigins.includes(vercelOrigin)) {
+  allowedOrigins.push(vercelOrigin);
+}
 
-const isOriginAllowed = (origin) => {
-  if (!origin) return true;
-  if (allowedOrigins.includes(origin)) return true;
+const isLocalhostOrigin = (origin) => /^http:\/\/localhost:\d+$/.test(origin);
 
-  const match = /^http:\/\/localhost:(\d+)$/.exec(origin);
-  if (match && Number.isFinite(basePort) && Number(match[1]) >= basePort) {
-    return true;
-  }
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true); // mobile apps/postman
 
-  return false;
-};
+      if (allowedOrigins.includes(origin) || isLocalhostOrigin(origin)) {
+        return callback(null, true);
+      }
 
-const corsOptions = {
-  origin: (origin, cb) => {
-    if (isOriginAllowed(origin)) return cb(null, true);
-    return cb(new Error('Not allowed by CORS'));
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-};
+      return callback(new Error('Blocked by CORS: ' + origin));
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  })
+);
 
-app.use(cors(corsOptions));
-app.options(/.*/, cors(corsOptions));
+app.options('*', cors());
 
 app.use(express.json());
 
@@ -93,8 +92,9 @@ const server = http.createServer(app);
 initSocket(server, {
   cors: {
     origin: (origin, cb) => {
-      if (isOriginAllowed(origin)) return cb(null, true);
-      return cb(new Error('Not allowed by CORS'));
+      if (!origin) return cb(null, true);
+      if (allowedOrigins.includes(origin) || isLocalhostOrigin(origin)) return cb(null, true);
+      return cb(new Error('Blocked by CORS: ' + origin));
     },
     methods: ['GET', 'POST'],
   },
