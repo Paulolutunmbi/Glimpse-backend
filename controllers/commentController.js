@@ -57,8 +57,11 @@ const createComment = async (req, res) => {
       return res.status(403).json({ error: 'Not allowed to comment on this post' });
     }
 
+    const parentCommentId = req.body?.parentCommentId || null;
+
     const comment = new Comment({
       postId,
+      parentCommentId,
       userId: String(req.userId),
       username: user.username,
       avatar: user.profilePicture || user.avatar || '',

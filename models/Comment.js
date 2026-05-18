@@ -7,6 +7,7 @@ const commentSchema = new mongoose.Schema(
     username: { type: String, default: 'Guest' },
     avatar: { type: String, default: '' },
     text: { type: String, required: true, trim: true },
+    parentCommentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Comment', default: null },
     isEdited: { type: Boolean, default: false },
     editedAt: { type: Date, default: null },
     editWindowUntil: {
