@@ -58,6 +58,12 @@ const createComment = async (req, res) => {
     }
 
     const parentCommentId = req.body?.parentCommentId || null;
+    if (parentCommentId) {
+      const parent = await Comment.findOne({ _id: parentCommentId, postId }).select('_id postId');
+      if (!parent) {
+        return res.status(400).json({ error: 'Invalid parentCommentId for this post' });
+      }
+    }
 
     const comment = new Comment({
       postId,
@@ -71,7 +77,12 @@ const createComment = async (req, res) => {
     });
 
     await comment.save();
-    await Post.findByIdAndUpdate(postId, { $inc: { comments: 1 } }).catch(() => null);
+    const updatedPost = await Post.findByIdAndUpdate(
+      postId,
+      { $inc: { comments: 1 } },
+      { new: true }
+    ).select('comments');
+    const commentsCount = updatedPost?.comments;
 
     if (visiblePost?.author) {
       await createNotification({
@@ -87,11 +98,16 @@ const createComment = async (req, res) => {
       const io = getIO();
       io.to(String(postId)).emit('comment:created', {
         comment: serializeComment(comment, req.userId),
+        postId: String(postId),
+        commentsCount,
       });
     } catch (err) {
       console.error('Socket emit failed:', err.message);
     }
-    return res.status(201).json(serializeComment(comment, req.userId));
+    return res.status(201).json({
+      comment: serializeComment(comment, req.userId),
+      commentsCount,
+    });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to create comment', details: err.message });
   }
@@ -178,12 +194,18 @@ const deleteComment = async (req, res) => {
     }
 
     await comment.deleteOne();
-    await Post.findByIdAndUpdate(comment.postId, { $inc: { comments: -1 } }).catch(() => null);
+    const updatedPost = await Post.findByIdAndUpdate(
+      comment.postId,
+      { $inc: { comments: -1 } },
+      { new: true }
+    ).select('comments');
+    const commentsCount = updatedPost?.comments;
     try {
       const io = getIO();
       io.to(String(comment.postId)).emit('comment:deleted', {
         commentId: String(comment._id),
         postId: String(comment.postId),
+        commentsCount,
       });
     } catch (err) {
       console.error('Socket emit failed:', err.message);
