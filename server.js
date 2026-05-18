@@ -20,6 +20,17 @@ const { verifyEmailTransport } = require('./utils/sendEmail');
 
 dotenv.config();
 
+// Fail fast on missing critical environment variables
+if (!process.env.MONGO_URI) {
+  console.error('ERROR: MONGO_URI must be configured in the environment');
+  process.exit(1);
+}
+
+if (!process.env.JWT_SECRET) {
+  console.error('ERROR: JWT_SECRET must be configured in the environment');
+  process.exit(1);
+}
+
 const app = express();
 
 const allowedOrigins = (process.env.CLIENT_ORIGINS || '')

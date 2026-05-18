@@ -5,6 +5,7 @@ const {
   ALLOWED_IMAGE_MIME_TYPES,
   ALLOWED_VIDEO_MIME_TYPES,
 } = require('../middleware/upload');
+const fs = require('fs');
 
 const IMAGE_FOLDER = 'glimpse/moments/images';
 const VIDEO_FOLDER = 'glimpse/moments/videos';
@@ -53,13 +54,39 @@ const uploadMediaFile = async ({ file, folder, publicId }) => {
     ? buildVideoTransformations()
     : buildImageTransformations();
 
-  const result = await uploadBuffer({
-    buffer: file.buffer,
-    folder,
-    publicId,
-    resourceType,
-    transformation,
-  });
+  let result;
+  try {
+    if (file.path) {
+      // Disk-backed file: use Cloudinary uploader directly by path
+      const cloudinary = getCloudinary();
+      result = await cloudinary.uploader.upload(file.path, {
+        folder,
+        public_id: publicId,
+        resource_type: resourceType,
+        transformation,
+        format: undefined,
+      });
+    } else if (file.buffer) {
+      result = await uploadBuffer({
+        buffer: file.buffer,
+        folder,
+        publicId,
+        resourceType,
+        transformation,
+      });
+    } else {
+      throw new Error('No file content to upload');
+    }
+  } finally {
+    // Ensure disk-temp cleanup if present
+    try {
+      if (file && file.path) {
+        fs.unlink(file.path, () => {});
+      }
+    } catch (err) {
+      // ignore cleanup errors
+    }
+  }
 
   const media = {
     url: result.secure_url,
