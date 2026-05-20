@@ -20,19 +20,20 @@ const { verifyEmailTransport } = require('./utils/sendEmail');
 
 dotenv.config();
 
-// Fail fast on missing critical environment variables
+// 🔒 Fail fast
 if (!process.env.MONGO_URI) {
-  console.error('ERROR: MONGO_URI must be configured in the environment');
+  console.error('ERROR: MONGO_URI must be configured');
   process.exit(1);
 }
 
 if (!process.env.JWT_SECRET) {
-  console.error('ERROR: JWT_SECRET must be configured in the environment');
+  console.error('ERROR: JWT_SECRET must be configured');
   process.exit(1);
 }
 
 const app = express();
 
+// 🌍 Allowed origins
 const allowedOrigins = (process.env.CLIENT_ORIGINS || '')
   .split(',')
   .map((o) => o.trim())
@@ -45,10 +46,11 @@ if (!allowedOrigins.includes(vercelOrigin)) {
 
 const isLocalhostOrigin = (origin) => /^http:\/\/localhost:\d+$/.test(origin);
 
+// ✅ CORS (safe + production ready)
 app.use(
   cors({
     origin: function (origin, callback) {
-      if (!origin) return callback(null, true); // mobile apps/postman
+      if (!origin) return callback(null, true);
 
       if (allowedOrigins.includes(origin) || isLocalhostOrigin(origin)) {
         return callback(null, true);
@@ -62,16 +64,18 @@ app.use(
   })
 );
 
-app.options('/*', cors());
+// ❌ REMOVED: app.options('/*', cors());
+// Express now handles preflight automatically
 
 app.use(express.json());
 
-const URI = process.env.MONGO_URI;
+// DB
 mongoose
-  .connect(URI)
+  .connect(process.env.MONGO_URI)
   .then(() => console.log('Connected to MongoDB'))
   .catch((err) => console.error('MongoDB connection error:', err));
 
+// Routes
 app.use('/api/posts', postRoutes);
 app.use('/api/comments', commentRoutes);
 app.use('/api/auth', authRoutes);
@@ -83,12 +87,18 @@ app.use('/api/messages', messageRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/dev/email-preview', emailPreviewRoutes);
 
-app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
 
+// 404 + error handlers (IMPORTANT: must stay last)
 app.use(notFound);
 app.use(errorHandler);
 
+// Server + Socket
 const server = http.createServer(app);
+
 initSocket(server, {
   cors: {
     origin: (origin, cb) => {
@@ -100,13 +110,15 @@ initSocket(server, {
   },
 });
 
+// Start server
 const port = process.env.PORT || 5000;
 server.listen(port, () => {
-  console.log(`Server running on http://localhost:${port}`);
+  console.log(`Server running on port ${port}`);
 });
 
+// SMTP check
 if (process.env.VERIFY_SMTP_ON_STARTUP === 'true') {
   verifyEmailTransport()
-    .then(() => console.log('SMTP transport verified'))
-    .catch((err) => console.error('SMTP transport verification failed:', err.message));
+    .then(() => console.log('SMTP verified'))
+    .catch((err) => console.error('SMTP error:', err.message));
 }
