@@ -32,8 +32,13 @@ Glimpse Backend is an Express and MongoDB API that powers authentication, posts,
 
 | Path | Purpose |
 | --- | --- |
-| `server.js` | Express app, CORS, routes, MongoDB connection, Socket.IO bootstrap |
-| `index.js` | Entry point that starts the server |
+| `src/server.js` | Entry point that starts the server, database, and Socket.IO |
+| `src/app.js` | Express app setup (CORS, JSON parsing, routes, error handling) |
+| `src/config/` | Runtime configuration helpers (DB + CORS) |
+| `src/routes/` | API route registration (mounts existing route modules) |
+| `src/sockets/` | Socket.IO initialization and event wiring |
+| `server.js` | Legacy entrypoint proxy (loads `src/server.js`) |
+| `index.js` | Legacy entrypoint proxy (loads `src/server.js`) |
 | `routes/` | HTTP route definitions |
 | `controllers/` | Request handlers and domain logic |
 | `models/` | Mongoose schemas for users, posts, and comments |

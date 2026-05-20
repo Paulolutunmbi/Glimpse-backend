@@ -372,13 +372,17 @@ const forgotPassword = async (req, res) => {
 
     const resetUrl = `${resetBaseUrl}?token=${rawToken}`;
 
-    // 🚀 IMPORTANT FIX: DO NOT await email (prevents 502)
-    sendPasswordResetEmail(user.email, {
-      resetUrl,
-      name: user.name,
-    }).catch((err) => {
-      console.error('Reset email failed:', err.message);
-    });
+    Promise.resolve()
+      .then(() =>
+        sendPasswordResetEmail(user.email, {
+          resetUrl,
+          name: user.name,
+        })
+      )
+      .catch((err) => {
+        const message = err && err.message ? err.message : err;
+        console.error('Reset email failed:', message);
+      });
 
     return res.status(200).json(response);
   } catch (err) {
