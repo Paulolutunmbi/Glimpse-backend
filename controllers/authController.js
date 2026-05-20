@@ -342,45 +342,52 @@ const forgotPassword = async (req, res) => {
     const normalizedEmail = normalizeEmail(req.body?.email);
 
     if (!normalizedEmail || !isValidEmail(normalizedEmail)) {
-      return res.status(400).json({ success: false, message: 'Enter a valid email address' });
+      return res.status(400).json({
+        success: false,
+        message: 'Enter a valid email address',
+      });
     }
 
     const user = await User.findOne({ email: normalizedEmail }).select('+resetPasswordToken');
-    const genericResponse = {
+
+    // Always respond the same way (security best practice)
+    const response = {
       success: true,
       message: 'If an account exists, a reset link has been sent.',
     };
 
     if (!user) {
-      return res.status(200).json(genericResponse);
+      return res.status(200).json(response);
     }
 
+    // Generate token
     const rawToken = crypto.randomBytes(32).toString('hex');
+
     user.resetPasswordToken = hashValue(rawToken);
     user.resetPasswordExpires = new Date(Date.now() + RESET_TOKEN_TTL_MS);
     await user.save({ validateBeforeSave: false });
 
     const resetBaseUrl =
       process.env.CLIENT_RESET_PASSWORD_URL || 'http://localhost:3000/reset-password';
+
     const resetUrl = `${resetBaseUrl}?token=${rawToken}`;
 
-    try {
-      await sendPasswordResetEmail(user.email, { resetUrl, name: user.name });
-    } catch (err) {
-      user.resetPasswordToken = undefined;
-      user.resetPasswordExpires = undefined;
-      await user.save({ validateBeforeSave: false });
+    // 🚀 IMPORTANT FIX: DO NOT await email (prevents 502)
+    sendPasswordResetEmail(user.email, {
+      resetUrl,
+      name: user.name,
+    }).catch((err) => {
+      console.error('Reset email failed:', err.message);
+    });
 
-      return res.status(502).json({
-        success: false,
-        message: 'Reset email could not be sent. Please try again later.',
-      });
-    }
-
-    return res.status(200).json(genericResponse);
+    return res.status(200).json(response);
   } catch (err) {
     console.error('Forgot password error:', err);
-    return res.status(500).json({ success: false, message: 'Failed to start password reset' });
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to start password reset',
+    });
   }
 };
 
