@@ -1,5 +1,10 @@
 const User = require('../models/User');
 
+const getRequestIp = (req) =>
+  String(req.headers?.['x-forwarded-for'] || req.ip || req.socket?.remoteAddress || '')
+    .split(',')[0]
+    .trim();
+
 const pickBoolean = (value) => (typeof value === 'boolean' ? value : undefined);
 
 const applyEnum = (value, allowed) => (allowed.includes(value) ? value : undefined);
@@ -122,19 +127,34 @@ const updateAppearance = async (req, res) => {
 };
 
 const logoutOtherSessions = async (req, res) => {
+  const ctx = {
+    flow: 'logoutOtherSessions',
+    id: Math.random().toString(16).slice(2, 14),
+    ip: getRequestIp(req),
+  };
+
   try {
+    console.info(`[${ctx.flow}:${ctx.id}] Route hit`, {
+      ip: ctx.ip,
+      userId: String(req.userId || ''),
+      hasSession: Boolean(req.sessionId),
+    });
+
     if (!req.user || !req.userId) {
+      console.warn(`[${ctx.flow}:${ctx.id}] Unauthorized: missing user`);
       return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
 
     const currentSessionId = req.sessionId;
     if (!currentSessionId) {
+      console.warn(`[${ctx.flow}:${ctx.id}] Unauthorized: missing session id`);
       return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
 
     const user = await User.findById(req.userId).select('settings.security.activeSessions');
 
     if (!user) {
+      console.warn(`[${ctx.flow}:${ctx.id}] Unauthorized: user not found`);
       return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
 
@@ -160,6 +180,11 @@ const logoutOtherSessions = async (req, res) => {
     user.settings.security.activeSessions = nextSessions;
     await user.save({ validateBeforeSave: false });
 
+    console.info(`[${ctx.flow}:${ctx.id}] Other sessions cleared`, {
+      userId: String(req.userId),
+      removedCount,
+    });
+
     return res.status(200).json({
       success: true,
       message:
@@ -169,6 +194,10 @@ const logoutOtherSessions = async (req, res) => {
       data: { activeSessions: nextSessions, removedCount },
     });
   } catch (err) {
+    console.error(`[${ctx.flow}:${ctx.id}] Failed`, {
+      message: err.message || err,
+      stack: err.stack,
+    });
     return res.status(500).json({ success: false, message: 'Failed to logout other sessions' });
   }
 };

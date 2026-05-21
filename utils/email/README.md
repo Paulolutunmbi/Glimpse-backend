@@ -4,7 +4,7 @@ All outgoing email should go through `utils/email/emailService.js`.
 
 ## Structure
 
-- `brand.js` stores Glimpse email colors, typography, support contact, app URL, and the logo attachment.
+- `brand.js` stores Glimpse email colors, typography, support contact, app URL, and public logo URL.
 - `components/` contains reusable email-safe pieces such as the header, footer, CTA button, and code block.
 - `templates/` renders full HTML and plain text payloads for each email type.
 - `templates/registry.js` maps template names to versions and sample preview data.
@@ -13,14 +13,13 @@ All outgoing email should go through `utils/email/emailService.js`.
 - `queue/emailQueue.js` is the integration point for BullMQ or another queue later.
 - `rateLimit/emailRateLimiter.js` adds lightweight transactional sending safeguards.
 - `styles/` centralizes inline-safe style strings used across templates.
-- `emailService.js` owns SMTP setup, error handling, default logo attachment, and template dispatch.
+- `emailService.js` owns Resend delivery, error handling, and template dispatch.
 
 ## Logo loading
 
-Emails reference the logo with `cid:glimpse-logo`. `emailService.js` attaches
-`Backend/assets/glimpse-logo-light-dark.png` to every email via an absolute
-path resolved from `utils/email/brand.js`, so the logo does not depend on
-frontend assets, public URLs, or base64 embedding.
+Emails reference the hosted frontend logo at `/images/glimpse-logo-light-dark.png`
+under `CLIENT_APP_URL`. This keeps Resend payloads simple and avoids provider-
+specific inline attachment handling.
 
 ## Adding a Template
 

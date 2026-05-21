@@ -15,10 +15,12 @@ const brand = {
   logoPath,
   logoFilename,
   logoAbsolutePath,
+  logoUrl: `${getClientAppUrl()}/images/glimpse-logo-light-dark.png`,
   logo: {
     cid: logoCid,
     filename: logoFilename,
     path: logoAbsolutePath,
+    url: `${getClientAppUrl()}/images/glimpse-logo-light-dark.png`,
     width: 156,
     alt: 'Glimpse',
   },

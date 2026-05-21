@@ -13,11 +13,11 @@ const VERIFICATION_CODE_TTL_MS = 10 * 60 * 1000;
 const RESET_TOKEN_TTL_MS = 15 * 60 * 1000;
 const MAX_ACTIVE_SESSIONS = 20;
 const resolveForgotPasswordTimeoutMs = () => {
-  const smtpTimeoutMs = Number(process.env.SMTP_SEND_TIMEOUT_MS || 15000);
-  const defaultTimeoutMs = Math.max(20000, smtpTimeoutMs + 5000);
+  const emailTimeoutMs = Number(process.env.EMAIL_SEND_TIMEOUT_MS || 10000);
+  const defaultTimeoutMs = Math.max(15000, emailTimeoutMs + 5000);
   const raw = Number(process.env.FORGOT_PASSWORD_EMAIL_TIMEOUT_MS || defaultTimeoutMs);
   if (!Number.isFinite(raw) || raw <= 0) return defaultTimeoutMs;
-  return Math.max(raw, smtpTimeoutMs);
+  return Math.max(raw, emailTimeoutMs);
 };
 
 const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
@@ -475,9 +475,11 @@ const forgotPassword = async (req, res) => {
           name: user.name,
         }),
         timeoutMs,
-        'SMTP_SEND_TIMEOUT'
+        'EMAIL_SEND_TIMEOUT'
       );
-      logInfo(ctx, 'Reset email sent successfully', { messageId: result?.messageId });
+      logInfo(ctx, 'Reset email sent successfully', {
+        messageId: result?.data?.id || result?.id,
+      });
     } catch (err) {
       logError(ctx, 'Reset email failed', err);
       user.resetPasswordToken = undefined;

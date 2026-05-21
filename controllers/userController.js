@@ -871,8 +871,10 @@ const sendPasswordResetEmail = async (req, res) => {
 
     try {
       logInfo(ctx, 'Sending reset email', { to: maskEmail(user.email) });
-      await sendPasswordResetTemplate(user.email, { resetUrl, name: user.name });
-      logInfo(ctx, 'Reset email sent successfully');
+      const result = await sendPasswordResetTemplate(user.email, { resetUrl, name: user.name });
+      logInfo(ctx, 'Reset email sent successfully', {
+        messageId: result?.data?.id || result?.id,
+      });
     } catch (err) {
       logError(ctx, 'Failed to send reset email', err);
       user.resetPasswordToken = undefined;

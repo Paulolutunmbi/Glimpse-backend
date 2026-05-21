@@ -5,7 +5,7 @@ const createApp = require('./app');
 const { connectToDatabase } = require('./config/db');
 const { buildAllowedOrigins, buildSocketCorsOptions } = require('./config/cors');
 const { initSocket } = require('./sockets');
-const { validateEmailTransportEnv, verifyEmailTransport } = require('../utils/sendEmail');
+const { validateEmailTransportEnv } = require('../utils/sendEmail');
 
 dotenv.config();
 
@@ -40,7 +40,6 @@ connectToDatabase()
     process.exit(1);
   });
 
-const shouldVerifySmtp = process.env.VERIFY_SMTP_ON_STARTUP !== 'false';
 const emailConfig = validateEmailTransportEnv();
 
 if (!emailConfig.ok) {
@@ -50,10 +49,6 @@ if (!emailConfig.ok) {
   } else {
     console.warn(message);
   }
-}
-
-if (shouldVerifySmtp && emailConfig.ok) {
-  verifyEmailTransport()
-    .then(() => console.log('SMTP READY'))
-    .catch((err) => console.error('SMTP FAILED', err.message || err));
+} else {
+  console.log('Resend email configuration loaded');
 }

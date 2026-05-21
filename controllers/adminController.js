@@ -7,10 +7,7 @@ const Conversation = require('../models/Conversation');
 const { deleteMediaAssets } = require('../services/mediaService');
 const { isAdminEmail } = require('../utils/admin');
 const { getIO } = require('../socket');
-const {
-  validateEmailTransportEnv,
-  verifyEmailTransport,
-} = require('../utils/email/emailService');
+const { validateEmailTransportEnv } = require('../utils/email/emailService');
 
 const buildUserSummary = (user) => {
   const lastLogin = user.settings?.security?.loginHistory?.[0];
@@ -90,29 +87,18 @@ const getEmailHealth = async (req, res) => {
   if (!validation.ok) {
     return res.status(500).json({
       success: false,
-      smtpConfigured: false,
-      smtpVerified: false,
+      provider: 'resend',
+      configured: false,
       message: validation.message,
-      missing: validation.missing,
     });
   }
 
-  try {
-    await verifyEmailTransport();
-    return res.status(200).json({
-      success: true,
-      smtpConfigured: true,
-      smtpVerified: true,
-      message: 'SMTP connection verified',
-    });
-  } catch (err) {
-    return res.status(502).json({
-      success: false,
-      smtpConfigured: true,
-      smtpVerified: false,
-      message: err.message || 'SMTP verification failed',
-    });
-  }
+  return res.status(200).json({
+    success: true,
+    provider: 'resend',
+    configured: true,
+    message: 'Resend configuration is present',
+  });
 };
 
 const emitAdminStateChange = (eventName, payload = {}) => {
