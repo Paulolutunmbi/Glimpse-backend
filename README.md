@@ -75,12 +75,11 @@ Glimpse Backend is an Express and MongoDB API that powers authentication, posts,
 | `CLIENT_RESET_PASSWORD_URL` | No | Frontend reset-password URL, defaults to `http://localhost:3000/reset-password` |
 | `CLIENT_POST_ROUTE_PREFIX` | No | Frontend route prefix for post deep links, defaults to `/post` |
 | `VERIFY_SMTP_ON_STARTUP` | No | Set to `true` to verify SMTP connectivity at startup |
-| `SMTP_SERVICE` | No | Nodemailer service name when not using a custom host |
-| `SMTP_HOST` | No | Custom SMTP host |
-| `SMTP_PORT` | No | SMTP port when `SMTP_HOST` is set |
+| `SMTP_HOST` | Yes | SMTP host (e.g. `smtp.gmail.com`) |
+| `SMTP_PORT` | No | SMTP port, defaults to `587` when unset |
 | `SMTP_SECURE` | No | Whether the SMTP connection uses TLS |
-| `SMTP_USER` / `EMAIL_USER` | Yes | SMTP username |
-| `SMTP_PASS` / `EMAIL_PASS` | Yes | SMTP password |
+| `SMTP_USER` | Yes | SMTP username |
+| `SMTP_PASS` | Yes | SMTP password |
 | `SMTP_FROM` | No | From address for outbound email |
 | `SMTP_CONNECTION_TIMEOUT_MS` | No | SMTP connection timeout |
 | `SMTP_GREETING_TIMEOUT_MS` | No | SMTP greeting timeout |

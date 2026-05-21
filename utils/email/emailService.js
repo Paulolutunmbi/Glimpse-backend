@@ -1,73 +1,10 @@
 const fs = require('fs');
-const nodemailer = require('nodemailer');
 const brand = require('./brand');
 const { buildTrackingHeaders, createTrackingContext, withTracking } = require('./analytics/tracking');
 const { dispatchEmailJob, setEmailQueueAdapter } = require('./queue/emailQueue');
 const { assertEmailRateLimit } = require('./rateLimit/emailRateLimiter');
 const renderTemplate = require('./render/renderTemplate');
-
-let transporter;
-
-const parseBoolean = (value, fallback = false) => {
-  if (value === undefined || value === null || value === '') return fallback;
-  return ['true', '1', 'yes'].includes(String(value).trim().toLowerCase());
-};
-
-const parsePort = (value, fallback) => {
-  const port = Number(value || fallback);
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-    throw new Error('SMTP_PORT must be a valid TCP port');
-  }
-  return port;
-};
-
-const getTransportConfig = () => {
-  const service = process.env.SMTP_SERVICE || 'gmail';
-  const host = String(process.env.SMTP_HOST || '').trim();
-  const port = host ? parsePort(process.env.SMTP_PORT, 587) : undefined;
-  const secure = host ? parseBoolean(process.env.SMTP_SECURE, port === 465) : undefined;
-  const user = String(process.env.SMTP_USER || process.env.EMAIL_USER || '').trim();
-  const pass = String(process.env.SMTP_PASS || process.env.EMAIL_PASS || '').replace(/\s+/g, '');
-
-  if (!user || !pass) {
-    throw new Error('SMTP_USER and SMTP_PASS must be configured');
-  }
-
-  if (host && port === 465 && !secure) {
-    throw new Error('SMTP_SECURE must be true when SMTP_PORT is 465');
-  }
-
-  if (host && port !== 465 && secure) {
-    throw new Error('SMTP_SECURE must be false for STARTTLS ports such as 587');
-  }
-
-  const commonOptions = {
-    auth: { user, pass },
-    connectionTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT_MS || 10000),
-    greetingTimeout: Number(process.env.SMTP_GREETING_TIMEOUT_MS || 10000),
-    socketTimeout: Number(process.env.SMTP_SOCKET_TIMEOUT_MS || 20000),
-  };
-
-  return host
-    ? {
-        host,
-        port,
-        secure,
-        requireTLS: !secure,
-        tls: { servername: host },
-        ...commonOptions,
-      }
-    : {
-        service,
-        ...commonOptions,
-      };
-};
-
-const getTransporter = () => {
-  if (transporter) return transporter;
-  transporter = nodemailer.createTransport(getTransportConfig());
-  return transporter;
-};
+const { getTransporter, verifyTransporter } = require('./transporter');
 
 const getDefaultAttachments = () => {
   if (!fs.existsSync(brand.logoAbsolutePath)) return [];
@@ -86,7 +23,7 @@ const deliverEmail = async ({ to, subject, text, html, attachments = [], headers
     throw new Error('to, subject, and text or html are required');
   }
 
-  const from = process.env.SMTP_FROM || process.env.SMTP_USER || process.env.EMAIL_USER;
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER;
 
   if (!from) {
     throw new Error('SMTP_FROM or SMTP_USER must be configured');
@@ -153,7 +90,7 @@ const sendTemplateEmail = async ({ to, template, data = {}, version, metadata, .
   });
 };
 
-const verifyEmailTransport = async () => getTransporter().verify();
+const verifyEmailTransport = async () => verifyTransporter();
 
 module.exports = {
   sendRawEmail,
