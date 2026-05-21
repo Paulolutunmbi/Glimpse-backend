@@ -40,8 +40,10 @@ connectToDatabase()
     process.exit(1);
   });
 
-if (process.env.VERIFY_SMTP_ON_STARTUP === 'true') {
+const shouldVerifySmtp = process.env.VERIFY_SMTP_ON_STARTUP !== 'false';
+
+if (shouldVerifySmtp && process.env.SMTP_HOST) {
   verifyEmailTransport()
-    .then(() => console.log('SMTP verified'))
-    .catch((err) => console.error('SMTP error:', err.message));
+    .then(() => console.log('SMTP READY'))
+    .catch((err) => console.error('SMTP FAILED', err.message || err));
 }

@@ -47,9 +47,9 @@ const buildTransportOptions = () => {
     tls: { servername: host },
     logger: parseBoolean(process.env.SMTP_LOGGER, false),
     debug: parseBoolean(process.env.SMTP_DEBUG, false),
-    connectionTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT_MS || 10000),
-    greetingTimeout: Number(process.env.SMTP_GREETING_TIMEOUT_MS || 10000),
-    socketTimeout: Number(process.env.SMTP_SOCKET_TIMEOUT_MS || 20000),
+    connectionTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT_MS || 8000),
+    greetingTimeout: Number(process.env.SMTP_GREETING_TIMEOUT_MS || 8000),
+    socketTimeout: Number(process.env.SMTP_SOCKET_TIMEOUT_MS || 9000),
   };
 };
 

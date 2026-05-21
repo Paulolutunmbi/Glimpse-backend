@@ -7,8 +7,8 @@ const renderTemplate = require('./render/renderTemplate');
 const { getTransporter, verifyTransporter } = require('./transporter');
 
 const resolveSendTimeoutMs = () => {
-  const raw = Number(process.env.SMTP_SEND_TIMEOUT_MS || 9000);
-  if (!Number.isFinite(raw) || raw <= 0) return 9000;
+  const raw = Number(process.env.SMTP_SEND_TIMEOUT_MS || 8000);
+  if (!Number.isFinite(raw) || raw <= 0) return 8000;
   return raw;
 };
 
@@ -64,7 +64,8 @@ const deliverEmail = async ({ to, subject, text, html, attachments = [], headers
   const transport = getTransporter();
   const safeTo = maskEmail(to);
 
-  console.info('[email] Send start', { to: safeTo, subject });
+  const timeoutMs = resolveSendTimeoutMs();
+  console.info('[email] Send start', { to: safeTo, subject, timeoutMs });
 
   try {
     const result = await sendMailWithTimeout(transport, {

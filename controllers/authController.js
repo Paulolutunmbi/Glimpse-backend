@@ -11,6 +11,11 @@ const {
 const VERIFICATION_CODE_TTL_MS = 10 * 60 * 1000;
 const RESET_TOKEN_TTL_MS = 15 * 60 * 1000;
 const MAX_ACTIVE_SESSIONS = 20;
+const resolveForgotPasswordTimeoutMs = () => {
+  const raw = Number(process.env.FORGOT_PASSWORD_EMAIL_TIMEOUT_MS || 8000);
+  if (!Number.isFinite(raw) || raw <= 0) return 8000;
+  return raw;
+};
 
 const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
@@ -122,6 +127,23 @@ const createToken = (user, sessionId) =>
   jwt.sign({ userId: user._id, sessionId }, getJwtSecret(), {
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
   });
+
+const withTimeout = async (promise, timeoutMs, code = 'TIMEOUT') => {
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      const err = new Error(`Operation timed out after ${timeoutMs}ms`);
+      err.code = code;
+      reject(err);
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+};
 
 const trackLoginSession = async (user, req, sessionId) => {
   if (!user.settings) user.settings = {};
@@ -380,11 +402,16 @@ const getMe = async (req, res) => {
 const forgotPassword = async (req, res) => {
   const ctx = createLogContext(req, 'forgotPassword');
   try {
+    const timeoutMs = resolveForgotPasswordTimeoutMs();
     const normalizedEmail = normalizeEmail(req.body?.email);
 
     logInfo(ctx, 'Route hit', {
       ip: ctx.ip,
       email: normalizedEmail ? maskEmail(normalizedEmail) : 'missing',
+    });
+
+    logInfo(ctx, 'Email received', {
+      hasEmail: Boolean(normalizedEmail),
     });
 
     if (!normalizedEmail || !isValidEmail(normalizedEmail)) {
@@ -434,13 +461,20 @@ const forgotPassword = async (req, res) => {
 
     logInfo(ctx, 'Reset URL generated', { resetBaseUrl });
 
-    logInfo(ctx, 'Sending reset email', { to: maskEmail(user.email) });
+    logInfo(ctx, 'Sending reset email', {
+      to: maskEmail(user.email),
+      timeoutMs,
+    });
 
     try {
-      const result = await sendPasswordResetEmail(user.email, {
-        resetUrl,
-        name: user.name,
-      });
+      const result = await withTimeout(
+        sendPasswordResetEmail(user.email, {
+          resetUrl,
+          name: user.name,
+        }),
+        timeoutMs,
+        'SMTP_SEND_TIMEOUT'
+      );
       logInfo(ctx, 'Reset email sent successfully', { messageId: result?.messageId });
     } catch (err) {
       logError(ctx, 'Reset email failed', err);
