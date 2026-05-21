@@ -14,6 +14,13 @@ const MAX_ACTIVE_SESSIONS = 20;
 
 const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
+const maskEmail = (email) => {
+  const [name, domain] = String(email || '').split('@');
+  if (!domain) return 'unknown';
+  const safeName = name.length <= 2 ? `${name[0] || '*'}*` : `${name.slice(0, 2)}***`;
+  return `${safeName}@${domain}`;
+};
+
 const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
 
 const hashValue = (value) => crypto.createHash('sha256').update(value).digest('hex');
@@ -77,6 +84,39 @@ const getRequestIp = (req) =>
   String(req.headers?.['x-forwarded-for'] || req.ip || req.socket?.remoteAddress || '')
     .split(',')[0]
     .trim();
+
+const createLogContext = (req, flow) => ({
+  flow,
+  id: crypto.randomBytes(6).toString('hex'),
+  ip: getRequestIp(req),
+});
+
+const logInfo = (ctx, message, meta) => {
+  if (meta) {
+    console.info(`[${ctx.flow}:${ctx.id}] ${message}`, meta);
+    return;
+  }
+  console.info(`[${ctx.flow}:${ctx.id}] ${message}`);
+};
+
+const logWarn = (ctx, message, meta) => {
+  if (meta) {
+    console.warn(`[${ctx.flow}:${ctx.id}] ${message}`, meta);
+    return;
+  }
+  console.warn(`[${ctx.flow}:${ctx.id}] ${message}`);
+};
+
+const logError = (ctx, message, err) => {
+  if (err) {
+    console.error(`[${ctx.flow}:${ctx.id}] ${message}`, {
+      message: err.message || err,
+      stack: err.stack,
+    });
+    return;
+  }
+  console.error(`[${ctx.flow}:${ctx.id}] ${message}`);
+};
 
 const createToken = (user, sessionId) =>
   jwt.sign({ userId: user._id, sessionId }, getJwtSecret(), {
@@ -338,10 +378,17 @@ const getMe = async (req, res) => {
 };
 
 const forgotPassword = async (req, res) => {
+  const ctx = createLogContext(req, 'forgotPassword');
   try {
     const normalizedEmail = normalizeEmail(req.body?.email);
 
+    logInfo(ctx, 'Route hit', {
+      ip: ctx.ip,
+      email: normalizedEmail ? maskEmail(normalizedEmail) : 'missing',
+    });
+
     if (!normalizedEmail || !isValidEmail(normalizedEmail)) {
+      logWarn(ctx, 'Invalid email input');
       return res.status(400).json({
         success: false,
         message: 'Enter a valid email address',
@@ -350,6 +397,8 @@ const forgotPassword = async (req, res) => {
 
     const user = await User.findOne({ email: normalizedEmail }).select('+resetPasswordToken');
 
+    logInfo(ctx, 'User lookup completed', { userFound: Boolean(user) });
+
     // Always respond the same way (security best practice)
     const response = {
       success: true,
@@ -357,36 +406,57 @@ const forgotPassword = async (req, res) => {
     };
 
     if (!user) {
+      logInfo(ctx, 'No account found. Returning generic success response.');
       return res.status(200).json(response);
     }
 
     // Generate token
     const rawToken = crypto.randomBytes(32).toString('hex');
 
+    logInfo(ctx, 'Reset token generated');
+
     user.resetPasswordToken = hashValue(rawToken);
     user.resetPasswordExpires = new Date(Date.now() + RESET_TOKEN_TTL_MS);
     await user.save({ validateBeforeSave: false });
 
+    logInfo(ctx, 'Reset token saved to user');
+
     const resetBaseUrl =
       process.env.CLIENT_RESET_PASSWORD_URL || 'http://localhost:3000/reset-password';
 
+    if (!process.env.CLIENT_RESET_PASSWORD_URL) {
+      logWarn(ctx, 'CLIENT_RESET_PASSWORD_URL not set. Using fallback.', {
+        resetBaseUrl,
+      });
+    }
+
     const resetUrl = `${resetBaseUrl}?token=${rawToken}`;
 
-    Promise.resolve()
-      .then(() =>
-        sendPasswordResetEmail(user.email, {
-          resetUrl,
-          name: user.name,
-        })
-      )
-      .catch((err) => {
-        const message = err && err.message ? err.message : err;
-        console.error('Reset email failed:', message);
+    logInfo(ctx, 'Reset URL generated', { resetBaseUrl });
+
+    logInfo(ctx, 'Sending reset email', { to: maskEmail(user.email) });
+
+    try {
+      await sendPasswordResetEmail(user.email, {
+        resetUrl,
+        name: user.name,
       });
+      logInfo(ctx, 'Reset email sent successfully');
+    } catch (err) {
+      logError(ctx, 'Reset email failed', err);
+      user.resetPasswordToken = undefined;
+      user.resetPasswordExpires = undefined;
+      await user.save({ validateBeforeSave: false });
+
+      return res.status(502).json({
+        success: false,
+        message: 'Reset email could not be sent. Please try again later.',
+      });
+    }
 
     return res.status(200).json(response);
   } catch (err) {
-    console.error('Forgot password error:', err);
+    logError(ctx, 'Forgot password error', err);
 
     return res.status(500).json({
       success: false,
@@ -396,16 +466,25 @@ const forgotPassword = async (req, res) => {
 };
 
 const resetPassword = async (req, res) => {
+  const ctx = createLogContext(req, 'resetPassword');
   try {
     const { token, password, newPassword } = req.body || {};
     const rawToken = String(token || '').trim();
     const nextPassword = String(newPassword || password || '');
 
+    logInfo(ctx, 'Route hit', {
+      ip: ctx.ip,
+      hasToken: Boolean(rawToken),
+      passwordLength: nextPassword.length,
+    });
+
     if (!rawToken || !nextPassword) {
+      logWarn(ctx, 'Missing token or password');
       return res.status(400).json({ success: false, message: 'token and new password are required' });
     }
 
     if (nextPassword.length < 8) {
+      logWarn(ctx, 'Password too short');
       return res.status(400).json({
         success: false,
         message: 'Password must be at least 8 characters',
@@ -418,6 +497,8 @@ const resetPassword = async (req, res) => {
       resetPasswordExpires: { $gt: new Date() },
     }).select('+password +resetPasswordToken');
 
+    logInfo(ctx, 'Reset token lookup', { userFound: Boolean(user) });
+
     if (!user) {
       return res.status(400).json({ success: false, message: 'Invalid or expired reset token' });
     }
@@ -427,8 +508,10 @@ const resetPassword = async (req, res) => {
     user.resetPasswordExpires = undefined;
     await user.save({ validateBeforeSave: false });
 
+    logInfo(ctx, 'Password updated and reset token cleared', { userId: String(user._id) });
+
     sendPasswordChangedEmail(user.email, { name: user.name }).catch((err) => {
-      console.error('Failed to send password changed email:', err.message);
+      logError(ctx, 'Failed to send password changed email', err);
     });
 
     return res.status(200).json({
@@ -436,7 +519,7 @@ const resetPassword = async (req, res) => {
       message: 'Password reset successful. You can now log in.',
     });
   } catch (err) {
-    console.error('Reset password error:', err);
+    logError(ctx, 'Reset password error', err);
     return res.status(500).json({ success: false, message: 'Failed to reset password' });
   }
 };

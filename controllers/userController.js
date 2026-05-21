@@ -10,6 +10,48 @@ const { isAdminEmail } = require('../utils/admin');
 
 const RESET_TOKEN_TTL_MS = 15 * 60 * 1000;
 
+const maskEmail = (email) => {
+  const [name, domain] = String(email || '').split('@');
+  if (!domain) return 'unknown';
+  const safeName = name.length <= 2 ? `${name[0] || '*'}*` : `${name.slice(0, 2)}***`;
+  return `${safeName}@${domain}`;
+};
+
+const createLogContext = (req, flow) => ({
+  flow,
+  id: crypto.randomBytes(6).toString('hex'),
+  ip: String(req.headers?.['x-forwarded-for'] || req.ip || req.socket?.remoteAddress || '')
+    .split(',')[0]
+    .trim(),
+});
+
+const logInfo = (ctx, message, meta) => {
+  if (meta) {
+    console.info(`[${ctx.flow}:${ctx.id}] ${message}`, meta);
+    return;
+  }
+  console.info(`[${ctx.flow}:${ctx.id}] ${message}`);
+};
+
+const logWarn = (ctx, message, meta) => {
+  if (meta) {
+    console.warn(`[${ctx.flow}:${ctx.id}] ${message}`, meta);
+    return;
+  }
+  console.warn(`[${ctx.flow}:${ctx.id}] ${message}`);
+};
+
+const logError = (ctx, message, err) => {
+  if (err) {
+    console.error(`[${ctx.flow}:${ctx.id}] ${message}`, {
+      message: err.message || err,
+      stack: err.stack,
+    });
+    return;
+  }
+  console.error(`[${ctx.flow}:${ctx.id}] ${message}`);
+};
+
 const normalizePreferences = (prefs) =>
   Array.isArray(prefs)
     ? prefs.map((value) => String(value || '').trim()).filter(Boolean)
@@ -797,10 +839,14 @@ const getSavedMoments = async (req, res) => {
 const hashValue = (value) => crypto.createHash('sha256').update(value).digest('hex');
 
 const sendPasswordResetEmail = async (req, res) => {
+  const ctx = createLogContext(req, 'settingsResetPassword');
   try {
     const user = await User.findById(req.userId).select('+resetPasswordToken');
 
+    logInfo(ctx, 'Route hit', { ip: ctx.ip, userId: String(req.userId || '') });
+
     if (!user) {
+      logWarn(ctx, 'User not found');
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
@@ -809,14 +855,26 @@ const sendPasswordResetEmail = async (req, res) => {
     user.resetPasswordExpires = new Date(Date.now() + RESET_TOKEN_TTL_MS);
     await user.save({ validateBeforeSave: false });
 
+    logInfo(ctx, 'Reset token saved to user');
+
     const resetBaseUrl =
       process.env.CLIENT_RESET_PASSWORD_URL || 'http://localhost:3000/reset-password';
     const resetUrl = `${resetBaseUrl}?token=${rawToken}`;
 
+    if (!process.env.CLIENT_RESET_PASSWORD_URL) {
+      logWarn(ctx, 'CLIENT_RESET_PASSWORD_URL not set. Using fallback.', {
+        resetBaseUrl,
+      });
+    }
+
+    logInfo(ctx, 'Reset URL generated', { resetBaseUrl });
+
     try {
+      logInfo(ctx, 'Sending reset email', { to: maskEmail(user.email) });
       await sendPasswordResetTemplate(user.email, { resetUrl, name: user.name });
+      logInfo(ctx, 'Reset email sent successfully');
     } catch (err) {
-      console.error('Failed to send reset email:', err && err.message ? err.message : err);
+      logError(ctx, 'Failed to send reset email', err);
       user.resetPasswordToken = undefined;
       user.resetPasswordExpires = undefined;
       await user.save({ validateBeforeSave: false });
