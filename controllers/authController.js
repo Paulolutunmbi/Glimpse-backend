@@ -437,11 +437,11 @@ const forgotPassword = async (req, res) => {
     logInfo(ctx, 'Sending reset email', { to: maskEmail(user.email) });
 
     try {
-      await sendPasswordResetEmail(user.email, {
+      const result = await sendPasswordResetEmail(user.email, {
         resetUrl,
         name: user.name,
       });
-      logInfo(ctx, 'Reset email sent successfully');
+      logInfo(ctx, 'Reset email sent successfully', { messageId: result?.messageId });
     } catch (err) {
       logError(ctx, 'Reset email failed', err);
       user.resetPasswordToken = undefined;

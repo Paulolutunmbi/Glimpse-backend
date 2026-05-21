@@ -20,7 +20,7 @@ const buildTransportOptions = () => {
   const port = parsePort(process.env.SMTP_PORT, 587);
   const secure = parseBoolean(process.env.SMTP_SECURE, port === 465);
   const user = String(process.env.SMTP_USER || '').trim();
-  const pass = String(process.env.SMTP_PASS || '').replace(/\s+/g, '');
+  const pass = String(process.env.SMTP_PASS || '').trim();
 
   if (!host) {
     throw new Error('SMTP_HOST must be configured');
@@ -45,6 +45,8 @@ const buildTransportOptions = () => {
     requireTLS: !secure,
     auth: { user, pass },
     tls: { servername: host },
+    logger: parseBoolean(process.env.SMTP_LOGGER, false),
+    debug: parseBoolean(process.env.SMTP_DEBUG, false),
     connectionTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT_MS || 10000),
     greetingTimeout: Number(process.env.SMTP_GREETING_TIMEOUT_MS || 10000),
     socketTimeout: Number(process.env.SMTP_SOCKET_TIMEOUT_MS || 20000),

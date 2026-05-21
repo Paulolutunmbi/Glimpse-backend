@@ -6,6 +6,38 @@ const { assertEmailRateLimit } = require('./rateLimit/emailRateLimiter');
 const renderTemplate = require('./render/renderTemplate');
 const { getTransporter, verifyTransporter } = require('./transporter');
 
+const resolveSendTimeoutMs = () => {
+  const raw = Number(process.env.SMTP_SEND_TIMEOUT_MS || 9000);
+  if (!Number.isFinite(raw) || raw <= 0) return 9000;
+  return raw;
+};
+
+const maskEmail = (email) => {
+  const [name, domain] = String(email || '').split('@');
+  if (!domain) return 'unknown';
+  const safeName = name.length <= 2 ? `${name[0] || '*'}*` : `${name.slice(0, 2)}***`;
+  return `${safeName}@${domain}`;
+};
+
+const sendMailWithTimeout = async (transport, options) => {
+  const timeoutMs = resolveSendTimeoutMs();
+  let timeoutId;
+
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      const err = new Error(`SMTP sendMail timed out after ${timeoutMs}ms`);
+      err.code = 'SMTP_SEND_TIMEOUT';
+      reject(err);
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([transport.sendMail(options), timeoutPromise]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+};
+
 const getDefaultAttachments = () => {
   if (!fs.existsSync(brand.logoAbsolutePath)) return [];
 
@@ -29,8 +61,13 @@ const deliverEmail = async ({ to, subject, text, html, attachments = [], headers
     throw new Error('SMTP_FROM or SMTP_USER must be configured');
   }
 
+  const transport = getTransporter();
+  const safeTo = maskEmail(to);
+
+  console.info('[email] Send start', { to: safeTo, subject });
+
   try {
-    return await getTransporter().sendMail({
+    const result = await sendMailWithTimeout(transport, {
       from,
       to,
       subject,
@@ -40,7 +77,16 @@ const deliverEmail = async ({ to, subject, text, html, attachments = [], headers
       headers,
       ...options,
     });
+
+    console.info('[email] Send success', { to: safeTo, subject, messageId: result?.messageId });
+    return result;
   } catch (err) {
+    console.error('[email] Send failed', {
+      to: safeTo,
+      subject,
+      message: err.message || err,
+      stack: err.stack,
+    });
     const message = err && err.message ? err.message : 'Unknown email delivery error';
     throw new Error(`Failed to send "${subject}" email to ${to}: ${message}`);
   }
