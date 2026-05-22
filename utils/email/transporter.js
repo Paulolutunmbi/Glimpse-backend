@@ -15,6 +15,14 @@ const parsePort = (value, fallback) => {
   return port;
 };
 
+const parseIpFamily = (value, fallback = 4) => {
+  const family = Number(value ?? fallback);
+  if (![4, 6].includes(family)) {
+    throw new Error('SMTP_IP_FAMILY must be 4 or 6');
+  }
+  return family;
+};
+
 const validateTransportEnv = () => {
   const missing = [];
   const host = String(process.env.SMTP_HOST || '').trim();
@@ -37,6 +45,7 @@ const validateTransportEnv = () => {
 
   try {
     const port = parsePort(process.env.SMTP_PORT, 587);
+    parseIpFamily(process.env.SMTP_IP_FAMILY, 4);
     const secure = parseBoolean(process.env.SMTP_SECURE, port === 465);
 
     if (port === 465 && !secure) {
@@ -74,6 +83,7 @@ const buildTransportOptions = () => {
   const host = String(process.env.SMTP_HOST || '').trim();
   const port = parsePort(process.env.SMTP_PORT, 587);
   const secure = parseBoolean(process.env.SMTP_SECURE, port === 465);
+  const family = parseIpFamily(process.env.SMTP_IP_FAMILY, 4);
   const user = String(process.env.SMTP_USER || '').trim();
   const pass = String(process.env.SMTP_PASS || '').trim();
 
@@ -81,6 +91,7 @@ const buildTransportOptions = () => {
     host,
     port,
     secure,
+    family,
     requireTLS: !secure,
     auth: { user, pass },
     tls: { servername: host },
