@@ -7,6 +7,7 @@ const {
   sendPasswordChangedEmail,
   sendWelcomeEmail,
 } = require('../utils/email/emailService');
+const { buildResetPasswordUrl, getClientResetPasswordUrl } = require('../src/config/clientUrls');
 
 const VERIFICATION_CODE_TTL_MS = 10 * 60 * 1000;
 const RESET_TOKEN_TTL_MS = 15 * 60 * 1000;
@@ -448,16 +449,15 @@ const forgotPassword = async (req, res) => {
 
     logInfo(ctx, 'Reset token saved to user');
 
-    const resetBaseUrl =
-      process.env.CLIENT_RESET_PASSWORD_URL || 'http://localhost:3000/reset-password';
+    const resetBaseUrl = getClientResetPasswordUrl();
 
     if (!process.env.CLIENT_RESET_PASSWORD_URL) {
-      logWarn(ctx, 'CLIENT_RESET_PASSWORD_URL not set. Using fallback.', {
+      logWarn(ctx, 'CLIENT_RESET_PASSWORD_URL not set. Using derived reset URL.', {
         resetBaseUrl,
       });
     }
 
-    const resetUrl = `${resetBaseUrl}?token=${rawToken}`;
+    const resetUrl = buildResetPasswordUrl(rawToken);
 
     logInfo(ctx, 'Reset URL generated', { resetBaseUrl });
 

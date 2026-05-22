@@ -69,10 +69,9 @@ Glimpse Backend is an Express and MongoDB API that powers authentication, posts,
 | `JWT_SECRET` | Yes | Secret used to sign and verify JWTs |
 | `JWT_EXPIRES_IN` | No | JWT lifetime, defaults to `7d` |
 | `CLIENT_ORIGINS` | No | Comma-separated list of allowed frontend origins for CORS |
-| `CLIENT_ORIGIN_BASE_PORT` | No | Allows localhost origins at or above this port when set |
 | `CLIENT_APP_URL` | No | Canonical frontend URL used in email links |
 | `CLIENT_ORIGIN` | No | Fallback frontend URL used in email links |
-| `CLIENT_RESET_PASSWORD_URL` | No | Frontend reset-password URL, defaults to `http://localhost:3000/reset-password` |
+| `CLIENT_RESET_PASSWORD_URL` | No | Frontend reset-password URL. Defaults to `CLIENT_APP_URL/reset-password`; local fallback is `http://localhost:5173/reset-password`, production fallback is the Vercel app URL |
 | `CLIENT_POST_ROUTE_PREFIX` | No | Frontend route prefix for post deep links, defaults to `/post` |
 | `VERIFY_SMTP_ON_STARTUP` | No | Set to `true` to verify SMTP connectivity at startup |
 | `SMTP_HOST` | Yes | SMTP host (e.g. `smtp.gmail.com`) |
@@ -222,6 +221,6 @@ The app listens on `http://localhost:5000` by default unless `PORT` is set.
 ## Deployment Notes
 
 - Set `MONGO_URI`, `JWT_SECRET`, and all production SMTP/Cloudinary values before starting the service.
-- Configure `CLIENT_ORIGINS` to include the deployed frontend domain so CORS and Socket.IO accept browser requests.
-- If the frontend is hosted on a different domain, update `CLIENT_APP_URL` and `CLIENT_RESET_PASSWORD_URL` so email links point to the correct app.
+- On Render, set `NODE_ENV=production`, `CLIENT_APP_URL=https://glimpse-theta-swart.vercel.app`, `CLIENT_ORIGINS=https://glimpse-theta-swart.vercel.app`, and `CLIENT_RESET_PASSWORD_URL=https://glimpse-theta-swart.vercel.app/reset-password`.
+- Configure Vercel with `VITE_API_URL=https://glimpse-backend-tin1.onrender.com`.
 - The server uses an in-memory rate limiter and feed cache, so a multi-instance deployment should be placed behind sticky sessions or an external cache if you need consistent throttling and cache behavior.

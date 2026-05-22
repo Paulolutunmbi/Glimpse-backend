@@ -1,9 +1,5 @@
 const mongoose = require('mongoose');
-
-const getClientAppUrl = () =>
-  String(process.env.CLIENT_APP_URL || process.env.CLIENT_ORIGIN || 'http://localhost:5173')
-    .trim()
-    .replace(/\/+$/, '');
+const { getClientAppUrl } = require('../src/config/clientUrls');
 
 const getPostRoutePrefix = () => {
   const rawPrefix = String(process.env.CLIENT_POST_ROUTE_PREFIX || '/post').trim() || '/post';

@@ -1,4 +1,5 @@
 const path = require('path');
+const { getClientAppUrl } = require('../../src/config/clientUrls');
 
 const logoCid = 'glimpse-logo';
 const logoFilename = 'glimpse-logo-light-dark.png';
@@ -9,7 +10,7 @@ const brand = {
   name: 'Glimpse',
   tagline: 'Share the moments that matter.',
   supportEmail: process.env.SUPPORT_EMAIL || 'support@glimpse.app',
-  appUrl: process.env.CLIENT_APP_URL || process.env.CLIENT_ORIGIN || 'http://localhost:5173',
+  appUrl: getClientAppUrl(),
   logoCid,
   logoPath,
   logoFilename,

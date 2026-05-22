@@ -1,4 +1,10 @@
-const vercelOrigin = 'https://glimpse-theta-swart.vercel.app';
+const {
+  DEVELOPMENT_CLIENT_APP_URL,
+  PRODUCTION_CLIENT_APP_URL,
+  getClientAppUrl,
+  getClientResetPasswordUrl,
+  isProduction,
+} = require('./clientUrls');
 
 const addOriginFromUrl = (allowedOrigins, value) => {
   if (!value) return;
@@ -18,28 +24,33 @@ const buildAllowedOrigins = () => {
     .map((origin) => origin.trim())
     .filter(Boolean);
 
-  addOriginFromUrl(allowedOrigins, process.env.CLIENT_APP_URL);
-  addOriginFromUrl(allowedOrigins, process.env.CLIENT_RESET_PASSWORD_URL);
+  addOriginFromUrl(allowedOrigins, getClientAppUrl());
+  addOriginFromUrl(allowedOrigins, getClientResetPasswordUrl());
 
-  if (!allowedOrigins.includes(vercelOrigin)) {
-    allowedOrigins.push(vercelOrigin);
+  if (!isProduction()) {
+    addOriginFromUrl(allowedOrigins, DEVELOPMENT_CLIENT_APP_URL);
+  }
+
+  if (isProduction() && !allowedOrigins.includes(PRODUCTION_CLIENT_APP_URL)) {
+    allowedOrigins.push(PRODUCTION_CLIENT_APP_URL);
   }
 
   return allowedOrigins;
 };
 
 const isLocalhostOrigin = (origin) => /^http:\/\/localhost:\d+$/.test(origin);
+const allowLocalhostOrigin = (origin) => !isProduction() && isLocalhostOrigin(origin);
 
 const resolveAllowedOrigin = (origin, allowedOrigins) => {
   if (!origin) return null;
-  if (allowedOrigins.includes(origin) || isLocalhostOrigin(origin)) return origin;
+  if (allowedOrigins.includes(origin) || allowLocalhostOrigin(origin)) return origin;
   return null;
 };
 
 const buildCorsOptions = (allowedOrigins) => ({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin) || isLocalhostOrigin(origin)) {
+    if (allowedOrigins.includes(origin) || allowLocalhostOrigin(origin)) {
       return callback(null, true);
     }
     return callback(null, false);
@@ -52,7 +63,7 @@ const buildCorsOptions = (allowedOrigins) => ({
 const buildSocketCorsOptions = (allowedOrigins) => ({
   origin: (origin, cb) => {
     if (!origin) return cb(null, true);
-    if (allowedOrigins.includes(origin) || isLocalhostOrigin(origin)) return cb(null, true);
+    if (allowedOrigins.includes(origin) || allowLocalhostOrigin(origin)) return cb(null, true);
     return cb(new Error('Blocked by CORS: ' + origin));
   },
   methods: ['GET', 'POST'],

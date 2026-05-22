@@ -1,6 +1,6 @@
 # Glimpse Auth API
 
-Base URL: `http://localhost:5000/api/auth`
+Base URL: `${API_BASE_URL}/api/auth`
 
 ## Endpoints
 
@@ -53,7 +53,7 @@ await API.post('/api/auth/reset-password', {
 ## Fetch Examples
 
 ```js
-await fetch('http://localhost:5000/api/auth/register', {
+await fetch(`${API_BASE_URL}/api/auth/register`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
@@ -65,7 +65,7 @@ await fetch('http://localhost:5000/api/auth/register', {
 ```
 
 ```js
-await fetch('http://localhost:5000/api/auth/login', {
+await fetch(`${API_BASE_URL}/api/auth/login`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
