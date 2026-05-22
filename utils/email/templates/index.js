@@ -84,7 +84,7 @@ const passwordChangedEmail = ({ name, loginUrl = brand.appUrl }) => ({
       ${paragraph(`${escapeHtml(greeting(name))} your Glimpse password has been updated. You can now sign in with your new password.`)}
       ${button({ href: loginUrl, label: 'Open Glimpse', variant: 'secondary' })}
       <div class="glimpse-note" style="${styles.note}">
-        If this was not you, contact us immediately at <a class="glimpse-link" href="mailto:${escapeHtml(brand.supportEmail)}" style="color:${brand.colors.primary}">${escapeHtml(brand.supportEmail)}</a>.
+        If this was not you, contact us immediately at <a class="glimpse-link" href="mailto:${escapeHtml(brand.supportEmailAddress)}" style="color:${brand.colors.primary}">${escapeHtml(brand.supportEmail)}</a>.
       </div>
     `,
   }),

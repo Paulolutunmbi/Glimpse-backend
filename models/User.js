@@ -78,7 +78,8 @@ const userSchema = new mongoose.Schema(
         compactMode: { type: Boolean, default: false },
       },
       security: {
-        activeSessions: [
+        activeSessions: {
+          type: [
           {
             sessionId: { type: String, trim: true },
             userAgent: { type: String, trim: true },
@@ -86,19 +87,24 @@ const userSchema = new mongoose.Schema(
             lastActiveAt: { type: Date },
             createdAt: { type: Date, default: Date.now },
           },
-        ],
-        loginHistory: [
+          ],
+          default: [],
+        },
+        loginHistory: {
+          type: [
           {
             userAgent: { type: String, trim: true },
             ip: { type: String, trim: true },
             createdAt: { type: Date, default: Date.now },
           },
-        ],
+          ],
+          default: [],
+        },
         twoFactorEnabled: { type: Boolean, default: false },
       },
       control: {
-        blockedUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
-        mutedUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+        blockedUsers: { type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], default: [] },
+        mutedUsers: { type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], default: [] },
       },
     },
     followers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
@@ -145,6 +151,20 @@ userSchema.virtual('displayName').get(function () {
 });
 
 userSchema.pre('save', async function () {
+  if (!this.profile) this.profile = {};
+  if (!this.settings) this.settings = {};
+  if (!this.settings.security) this.settings.security = {};
+  if (!this.settings.control) this.settings.control = {};
+
+  if (!Array.isArray(this.preferences)) this.preferences = [];
+  if (!Array.isArray(this.profile.preferences)) this.profile.preferences = [];
+  if (!Array.isArray(this.settings.security.activeSessions))
+    this.settings.security.activeSessions = [];
+  if (!Array.isArray(this.settings.security.loginHistory))
+    this.settings.security.loginHistory = [];
+  if (!Array.isArray(this.settings.control.blockedUsers)) this.settings.control.blockedUsers = [];
+  if (!Array.isArray(this.settings.control.mutedUsers)) this.settings.control.mutedUsers = [];
+
   if (!this.username && this.name) {
     this.username = this.name;
   }

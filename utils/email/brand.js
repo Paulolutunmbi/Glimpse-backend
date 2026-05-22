@@ -6,10 +6,17 @@ const logoFilename = 'glimpse-logo-light-dark.png';
 const logoPath = 'Backend/assets/glimpse-logo-light-dark.png';
 const logoAbsolutePath = path.resolve(__dirname, '../../assets/glimpse-logo-light-dark.png');
 
+const supportEmailAddress =
+  process.env.SUPPORT_EMAIL_ADDRESS || process.env.SUPPORT_EMAIL || 'oluwatunmbipaul@gmail.com';
+const supportEmailName = process.env.SUPPORT_EMAIL_NAME || 'Glimpse Support';
+const supportEmail = `${supportEmailName} <${supportEmailAddress}>`;
+
 const brand = {
   name: 'Glimpse',
   tagline: 'Share the moments that matter.',
-  supportEmail: process.env.SUPPORT_EMAIL || 'support@glimpse.app',
+  supportEmail,
+  supportEmailAddress,
+  supportEmailName,
   appUrl: getClientAppUrl(),
   logoCid,
   logoPath,

@@ -158,7 +158,9 @@ const logoutOtherSessions = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
 
-    const sessions = user.settings?.security?.activeSessions || [];
+    const sessions = Array.isArray(user.settings?.security?.activeSessions)
+      ? user.settings.security.activeSessions
+      : [];
     const currentSession =
       sessions.find((session) => session?.sessionId === currentSessionId) || {
         sessionId: currentSessionId,
@@ -171,7 +173,8 @@ const logoutOtherSessions = async (req, res) => {
 
     currentSession.lastActiveAt = new Date();
 
-    const removedCount = Math.max(0, sessions.length - 1);
+    const removedCount = sessions.filter((session) => session?.sessionId !== currentSessionId)
+      .length;
 
     if (!user.settings) user.settings = {};
     if (!user.settings.security) user.settings.security = {};

@@ -11,7 +11,7 @@ const footer = ({ reason } = {}) => `
       </p>
       <p class="glimpse-footer-text" style="${styles.footerText};margin-top:10px">
         ${escapeHtml(brand.name)} &bull; ${escapeHtml(brand.tagline)}<br>
-        Need help? <a class="glimpse-link" href="mailto:${escapeHtml(brand.supportEmail)}" style="color:${brand.colors.primary};text-decoration:none">${escapeHtml(brand.supportEmail)}</a>
+        Need help? <a class="glimpse-link" href="mailto:${escapeHtml(brand.supportEmailAddress)}" style="color:${brand.colors.primary};text-decoration:none">${escapeHtml(brand.supportEmail)}</a>
       </p>
     </td>
   </tr>
