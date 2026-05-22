@@ -4,11 +4,11 @@ const { buildTrackingHeaders, createTrackingContext, withTracking } = require('.
 const { dispatchEmailJob, setEmailQueueAdapter } = require('./queue/emailQueue');
 const { assertEmailRateLimit } = require('./rateLimit/emailRateLimiter');
 const renderTemplate = require('./render/renderTemplate');
-const { getTransporter, verifyTransporter } = require('./transporter');
+const { getTransporter, validateTransportEnv, verifyTransporter } = require('./transporter');
 
 const resolveSendTimeoutMs = () => {
-  const raw = Number(process.env.SMTP_SEND_TIMEOUT_MS || 8000);
-  if (!Number.isFinite(raw) || raw <= 0) return 8000;
+  const raw = Number(process.env.SMTP_SEND_TIMEOUT_MS || 15000);
+  if (!Number.isFinite(raw) || raw <= 0) return 15000;
   return raw;
 };
 
@@ -143,6 +143,7 @@ module.exports = {
   sendRawEmail,
   sendTemplateEmail,
   setEmailQueueAdapter,
+  validateEmailTransportEnv: validateTransportEnv,
   verifyEmailTransport,
   sendVerificationEmail: (to, data, options) =>
     sendTemplateEmail({ to, template: 'verificationEmail', data, ...(options || {}) }),

@@ -13,9 +13,11 @@ const VERIFICATION_CODE_TTL_MS = 10 * 60 * 1000;
 const RESET_TOKEN_TTL_MS = 15 * 60 * 1000;
 const MAX_ACTIVE_SESSIONS = 20;
 const resolveForgotPasswordTimeoutMs = () => {
-  const raw = Number(process.env.FORGOT_PASSWORD_EMAIL_TIMEOUT_MS || 8000);
-  if (!Number.isFinite(raw) || raw <= 0) return 8000;
-  return raw;
+  const smtpTimeoutMs = Number(process.env.SMTP_SEND_TIMEOUT_MS || 15000);
+  const defaultTimeoutMs = Math.max(20000, smtpTimeoutMs + 5000);
+  const raw = Number(process.env.FORGOT_PASSWORD_EMAIL_TIMEOUT_MS || defaultTimeoutMs);
+  if (!Number.isFinite(raw) || raw <= 0) return defaultTimeoutMs;
+  return Math.max(raw, smtpTimeoutMs);
 };
 
 const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);

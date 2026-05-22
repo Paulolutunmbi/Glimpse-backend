@@ -15,28 +15,67 @@ const parsePort = (value, fallback) => {
   return port;
 };
 
+const validateTransportEnv = () => {
+  const missing = [];
+  const host = String(process.env.SMTP_HOST || '').trim();
+  const user = String(process.env.SMTP_USER || '').trim();
+  const pass = String(process.env.SMTP_PASS || '').trim();
+  const from = String(process.env.SMTP_FROM || process.env.SMTP_USER || '').trim();
+
+  if (!host) missing.push('SMTP_HOST');
+  if (!user) missing.push('SMTP_USER');
+  if (!pass) missing.push('SMTP_PASS');
+  if (!from) missing.push('SMTP_FROM or SMTP_USER');
+
+  if (missing.length) {
+    return {
+      ok: false,
+      message: `Missing email configuration: ${missing.join(', ')}`,
+      missing,
+    };
+  }
+
+  try {
+    const port = parsePort(process.env.SMTP_PORT, 587);
+    const secure = parseBoolean(process.env.SMTP_SECURE, port === 465);
+
+    if (port === 465 && !secure) {
+      return {
+        ok: false,
+        message: 'SMTP_SECURE must be true when SMTP_PORT is 465',
+        missing: [],
+      };
+    }
+
+    if (port !== 465 && secure) {
+      return {
+        ok: false,
+        message: 'SMTP_SECURE must be false for STARTTLS ports such as 587',
+        missing: [],
+      };
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      message: err.message || 'Invalid SMTP configuration',
+      missing: [],
+    };
+  }
+
+  return { ok: true, message: 'SMTP configuration present', missing: [] };
+};
+
 const buildTransportOptions = () => {
+  const validation = validateTransportEnv();
+  if (!validation.ok) {
+    throw new Error(validation.message);
+  }
+
   const host = String(process.env.SMTP_HOST || '').trim();
   const port = parsePort(process.env.SMTP_PORT, 587);
   const secure = parseBoolean(process.env.SMTP_SECURE, port === 465);
   const user = String(process.env.SMTP_USER || '').trim();
   const pass = String(process.env.SMTP_PASS || '').trim();
-
-  if (!host) {
-    throw new Error('SMTP_HOST must be configured');
-  }
-
-  if (!user || !pass) {
-    throw new Error('SMTP_USER and SMTP_PASS must be configured');
-  }
-
-  if (port === 465 && !secure) {
-    throw new Error('SMTP_SECURE must be true when SMTP_PORT is 465');
-  }
-
-  if (port !== 465 && secure) {
-    throw new Error('SMTP_SECURE must be false for STARTTLS ports such as 587');
-  }
 
   return {
     host,
@@ -73,5 +112,6 @@ const verifyTransporter = async () => {
 module.exports = {
   buildTransportOptions,
   getTransporter,
+  validateTransportEnv,
   verifyTransporter,
 };

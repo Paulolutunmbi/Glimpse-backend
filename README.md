@@ -83,6 +83,8 @@ Glimpse Backend is an Express and MongoDB API that powers authentication, posts,
 | `SMTP_CONNECTION_TIMEOUT_MS` | No | SMTP connection timeout |
 | `SMTP_GREETING_TIMEOUT_MS` | No | SMTP greeting timeout |
 | `SMTP_SOCKET_TIMEOUT_MS` | No | SMTP socket timeout |
+| `SMTP_SEND_TIMEOUT_MS` | No | Per-email send timeout |
+| `FORGOT_PASSWORD_EMAIL_TIMEOUT_MS` | No | Outer timeout for forgot-password email delivery; should be greater than or equal to `SMTP_SEND_TIMEOUT_MS` |
 | `SUPPORT_EMAIL` | No | Support email address used by the email brand layer |
 | `EMAIL_PREVIEW_ENABLED` | No | Allows `/dev/email-preview` in production when set to `true` |
 | `EMAIL_TRACKING_BASE_URL` | No | Base URL used for email tracking links |
@@ -222,5 +224,6 @@ The app listens on `http://localhost:5000` by default unless `PORT` is set.
 
 - Set `MONGO_URI`, `JWT_SECRET`, and all production SMTP/Cloudinary values before starting the service.
 - On Render, set `NODE_ENV=production`, `CLIENT_APP_URL=https://glimpse-theta-swart.vercel.app`, `CLIENT_ORIGINS=https://glimpse-theta-swart.vercel.app`, and `CLIENT_RESET_PASSWORD_URL=https://glimpse-theta-swart.vercel.app/reset-password`.
+- On Render, set SMTP variables too. For Gmail this is typically `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=465`, `SMTP_SECURE=true`, `SMTP_USER=<gmail address>`, `SMTP_PASS=<Google app password>`, and `SMTP_FROM="Glimpse <same gmail address>"`.
 - Configure Vercel with `VITE_API_URL=https://glimpse-backend-tin1.onrender.com`.
 - The server uses an in-memory rate limiter and feed cache, so a multi-instance deployment should be placed behind sticky sessions or an external cache if you need consistent throttling and cache behavior.

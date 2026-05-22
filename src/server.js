@@ -5,7 +5,7 @@ const createApp = require('./app');
 const { connectToDatabase } = require('./config/db');
 const { buildAllowedOrigins, buildSocketCorsOptions } = require('./config/cors');
 const { initSocket } = require('./sockets');
-const { verifyEmailTransport } = require('../utils/sendEmail');
+const { validateEmailTransportEnv, verifyEmailTransport } = require('../utils/sendEmail');
 
 dotenv.config();
 
@@ -41,8 +41,18 @@ connectToDatabase()
   });
 
 const shouldVerifySmtp = process.env.VERIFY_SMTP_ON_STARTUP !== 'false';
+const emailConfig = validateEmailTransportEnv();
 
-if (shouldVerifySmtp && process.env.SMTP_HOST) {
+if (!emailConfig.ok) {
+  const message = `EMAIL CONFIG WARNING: ${emailConfig.message}. Password reset and verification emails will fail until this is fixed.`;
+  if (process.env.NODE_ENV === 'production') {
+    console.error(message);
+  } else {
+    console.warn(message);
+  }
+}
+
+if (shouldVerifySmtp && emailConfig.ok) {
   verifyEmailTransport()
     .then(() => console.log('SMTP READY'))
     .catch((err) => console.error('SMTP FAILED', err.message || err));
