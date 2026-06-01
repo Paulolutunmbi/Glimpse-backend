@@ -44,6 +44,16 @@ const templateRegistry = {
       ctaLabel: 'View profile',
     },
   },
+  accountDeletedEmail: {
+    defaultVersion: 'v1',
+    versions: { v1: templates.accountDeletedEmail },
+    sampleData: { name: 'Ada', feedbackUrl: 'https://glimpse.app/goodbye' },
+  },
+  feedbackReceivedEmail: {
+    defaultVersion: 'v1',
+    versions: { v1: templates.feedbackReceivedEmail },
+    sampleData: { email: 'ada@example.com', message: 'I left because...', timestamp: new Date().toISOString() },
+  },
   supportResponseEmail: {
     defaultVersion: 'v1',
     versions: { v1: templates.supportResponseEmail },

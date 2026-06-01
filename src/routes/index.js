@@ -9,6 +9,7 @@ const searchRoutes = require('../../routes/searchRoutes');
 const notificationRoutes = require('../../routes/notificationRoutes');
 const messageRoutes = require('../../routes/messageRoutes');
 const adminRoutes = require('../../routes/adminRoutes');
+const feedbackRoutes = require('../../routes/feedbackRoutes');
 
 const router = express.Router();
 
@@ -21,6 +22,7 @@ router.use('/search', searchRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/messages', messageRoutes);
 router.use('/admin', adminRoutes);
+router.use('/feedback', feedbackRoutes);
 
 router.get('/health', (req, res) => {
   res.json({ status: 'ok' });

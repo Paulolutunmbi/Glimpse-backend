@@ -194,6 +194,102 @@ const getUserProfileById = async (req, res) => {
   }
 };
 
+const deleteAccount = async (req, res) => {
+  const ctx = createLogContext(req, 'deleteAccount');
+  let mongoSession = null;
+  try {
+    const { password } = req.body || {};
+    const user = await User.findById(req.userId).select('+password profilePicturePublicId coverImagePublicId');
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (password) {
+      const ok = await user.comparePassword(password);
+      if (!ok) {
+        return res.status(403).json({ success: false, message: 'Invalid password' });
+      }
+    }
+
+    // Start transaction to remove user and related data
+    const mongoose = require('mongoose');
+    mongoSession = await mongoose.startSession();
+    mongoSession.startTransaction();
+
+    // Remove posts and comments authored by the user
+    await Post.deleteMany({ author: user._id }).session(mongoSession);
+    const Comment = require('../models/Comment');
+    await Comment.deleteMany({ author: user._id }).session(mongoSession);
+
+    // Remove messages and update conversations/groups to remove membership
+    const Message = require('../models/Message');
+    const Conversation = require('../models/Conversation');
+    await Message.deleteMany({ author: user._id }).session(mongoSession);
+    await Conversation.updateMany({ participants: user._id }, { $pull: { participants: user._id } }).session(mongoSession);
+
+    const GroupChat = require('../models/GroupChat');
+    await GroupChat.updateMany({ members: user._id }, { $pull: { members: user._id } }).session(mongoSession);
+
+    // Remove notifications related to the user
+    const Notification = require('../models/Notification');
+    await Notification.deleteMany({ $or: [{ user: user._id }, { actor: user._id }] }).session(mongoSession);
+
+    // Remove user from other users' relations
+    await User.updateMany({ followers: user._id }, { $pull: { followers: user._id } }).session(mongoSession);
+    await User.updateMany({ following: user._id }, { $pull: { following: user._id } }).session(mongoSession);
+
+    // Capture email for post-delete actions
+    const userEmail = user.email;
+
+    // Remove cloudinary images if present (best-effort)
+    try {
+      const { getCloudinary } = require('../config/cloudinary');
+      const cloud = getCloudinary();
+      if (user.profilePicturePublicId) {
+        await cloud.uploader.destroy(user.profilePicturePublicId, { resource_type: 'image' });
+      }
+      if (user.coverImagePublicId) {
+        await cloud.uploader.destroy(user.coverImagePublicId, { resource_type: 'image' });
+      }
+    } catch (err) {
+      logWarn(ctx, 'Cloudinary cleanup failed', err.message || err);
+    }
+
+    // Delete the user document
+    await User.deleteOne({ _id: user._id }).session(mongoSession);
+
+    await mongoSession.commitTransaction();
+    mongoSession.endSession();
+
+    // Send account-deleted email with feedback link (best-effort)
+    try {
+      const emailService = require('../utils/email/emailService');
+      const { getClientUrl, buildResetPasswordUrl } = require('../src/config/clientUrls');
+      const clientBase = (process.env.CLIENT_URL || getClientUrl?.() || '').replace(/\/$/, '');
+      const feedbackUrl = `${clientBase}/goodbye?email=${encodeURIComponent(userEmail)}`;
+      await emailService.sendTemplateEmail({
+        to: userEmail,
+        template: 'accountDeletedEmail',
+        data: { name: user.name || user.username || '', feedbackUrl },
+        version: 'v1',
+      });
+    } catch (errEmail) {
+      logWarn(ctx, 'Failed to send account deleted email', errEmail.message || errEmail);
+    }
+
+    return res.status(200).json({ success: true, message: 'Account deleted', email: userEmail });
+  } catch (err) {
+    if (mongoSession) {
+      try {
+        await mongoSession.abortTransaction();
+        mongoSession.endSession();
+      } catch (e) {}
+    }
+    logError(ctx, 'Delete account failed', err);
+    return res.status(500).json({ success: false, message: 'Failed to delete account' });
+  }
+};
+
 const updateProfile = async (req, res) => {
   try {
     const {
@@ -950,4 +1046,5 @@ module.exports = {
   unsavePost,
   getProfileStats,
   getSavedMoments,
+  deleteAccount,
 };

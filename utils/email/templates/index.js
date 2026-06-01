@@ -147,6 +147,38 @@ const supportResponseEmail = ({
   }),
 });
 
+const accountDeletedEmail = ({ name, feedbackUrl }) => ({
+  subject: 'Your Glimpse account was deleted',
+  text: `${greeting(name)} your account has been deleted. We appreciate your time on Glimpse.`,
+  html: layout({
+    title: 'Account deleted',
+    preheader: 'Your account has been removed',
+    footerReason: 'You received this email because your account was deleted at your request.',
+    children: `
+      ${titleBlock({ eyebrow: 'Account', title: 'Account deleted' })}
+      ${paragraph(`${escapeHtml(greeting(name))} your Glimpse account has been deleted. We appreciate the time you spent with us.`)}
+      ${paragraph('If you have a moment, please tell us why you left. Your feedback helps improve Glimpse for everyone.')}
+      ${button({ href: feedbackUrl, label: 'Share feedback' })}
+    `,
+  }),
+});
+
+const feedbackReceivedEmail = ({ email, message, timestamp }) => ({
+  subject: 'New account deletion feedback',
+  text: `Feedback from ${email} at ${timestamp}: ${message}`,
+  html: layout({
+    title: 'New feedback received',
+    preheader: 'A user submitted feedback after account deletion',
+    footerReason: 'This message was sent to Glimpse support.',
+    children: `
+      ${titleBlock({ eyebrow: 'Feedback', title: 'Account deletion feedback' })}
+      ${paragraph(`<strong>From:</strong> ${escapeHtml(String(email || 'anonymous'))}`)}
+      ${paragraph(`<strong>Time:</strong> ${escapeHtml(String(timestamp))}`)}
+      ${paragraph(`<strong>Message</strong><br>${escapeHtml(String(message))}`)}
+    `,
+  }),
+});
+
 module.exports = {
   verificationEmail,
   otpVerificationEmail,

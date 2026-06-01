@@ -48,6 +48,15 @@ router.post('/upload-profile-picture', auth, uploadProfilePicture, uploadAvatar)
 router.post('/upload-cover-image', auth, uploadCoverImage, uploadCoverImageController);
 router.post('/preferences', auth, updatePreferences);
 router.post('/reset-password', auth, sendPasswordResetEmail);
+router.delete('/delete', auth, async (req, res, next) => {
+  // forwarded to controller to avoid circular require issues
+  try {
+    const controller = require('../controllers/userController');
+    return controller.deleteAccount(req, res);
+  } catch (err) {
+    return next(err);
+  }
+});
 router.get('/settings', auth, getSettings);
 router.patch('/settings', auth, updateSettings);
 router.patch('/settings/privacy', auth, updatePrivacy);
