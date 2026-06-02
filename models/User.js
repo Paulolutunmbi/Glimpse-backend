@@ -43,7 +43,6 @@ const userSchema = new mongoose.Schema(
           enum: ['public', 'private'],
           default: 'public',
         },
-        showEmail: { type: Boolean, default: false },
         allowMessages: {
           type: String,
           enum: ['everyone', 'followers', 'none'],
@@ -61,12 +60,10 @@ const userSchema = new mongoose.Schema(
         },
       },
       notifications: {
-        emailNotifications: { type: Boolean, default: true },
         pushNotifications: { type: Boolean, default: false },
         commentNotifications: { type: Boolean, default: true },
         likeNotifications: { type: Boolean, default: true },
         followNotifications: { type: Boolean, default: true },
-        marketingEmails: { type: Boolean, default: false },
       },
       appearance: {
         theme: {
@@ -114,11 +111,7 @@ const userSchema = new mongoose.Schema(
     isFirstLogin: { type: Boolean, default: true },
     profileCompleted: { type: Boolean, default: false },
     onboardingCompleted: { type: Boolean, default: false },
-    isVerified: { type: Boolean, default: false },
-    verificationCode: { type: String, select: false },
-    verificationCodeExpires: { type: Date },
-    resetPasswordToken: { type: String, select: false },
-    resetPasswordExpires: { type: Date },
+    verified: { type: Boolean, default: true },
     isBanned: { type: Boolean, default: false },
     bannedAt: { type: Date },
     banReason: { type: String, default: '' },

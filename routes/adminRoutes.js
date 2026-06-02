@@ -4,7 +4,6 @@ const { requireAdmin } = require('../middleware/admin');
 const rateLimiter = require('../middleware/rateLimiter');
 const {
   verifyAdmin,
-  getEmailHealth,
   listUsers,
   getUserDetails,
   getAnalytics,
@@ -17,7 +16,6 @@ const router = express.Router();
 const adminLimiter = rateLimiter({ windowMs: 15 * 60 * 1000, max: 120 });
 
 router.get('/verify', auth, requireAdmin, verifyAdmin);
-router.get('/email-health', auth, requireAdmin, adminLimiter, getEmailHealth);
 router.get('/analytics', auth, requireAdmin, adminLimiter, getAnalytics);
 router.get('/users', auth, requireAdmin, adminLimiter, listUsers);
 router.get('/users/:id', auth, requireAdmin, adminLimiter, getUserDetails);

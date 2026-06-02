@@ -29,12 +29,6 @@ const buildSettingsUpdate = (payload = {}) => {
   const activityVisibility = applyEnum(privacy.activityVisibility, ['everyone', 'followers', 'private']);
   if (activityVisibility) updates['settings.privacy.activityVisibility'] = activityVisibility;
 
-  const showEmail = pickBoolean(privacy.showEmail);
-  if (showEmail !== undefined) updates['settings.privacy.showEmail'] = showEmail;
-
-  const emailNotifications = pickBoolean(notifications.emailNotifications);
-  if (emailNotifications !== undefined) updates['settings.notifications.emailNotifications'] = emailNotifications;
-
   const pushNotifications = pickBoolean(notifications.pushNotifications);
   if (pushNotifications !== undefined) updates['settings.notifications.pushNotifications'] = pushNotifications;
 
@@ -47,9 +41,6 @@ const buildSettingsUpdate = (payload = {}) => {
 
   const followNotifications = pickBoolean(notifications.followNotifications);
   if (followNotifications !== undefined) updates['settings.notifications.followNotifications'] = followNotifications;
-
-  const marketingEmails = pickBoolean(notifications.marketingEmails);
-  if (marketingEmails !== undefined) updates['settings.notifications.marketingEmails'] = marketingEmails;
 
   const theme = applyEnum(appearance.theme, ['system', 'light', 'dark']);
   if (theme) updates['settings.appearance.theme'] = theme;
@@ -76,7 +67,7 @@ const buildSettingsUpdate = (payload = {}) => {
 
 const getSettings = async (req, res) => {
   try {
-    const user = await User.findById(req.userId).select('settings email username');
+    const user = await User.findById(req.userId).select('settings username');
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
@@ -86,7 +77,6 @@ const getSettings = async (req, res) => {
       data: {
         settings: user.settings,
         username: user.username,
-        email: user.email,
       },
     });
   } catch (err) {

@@ -2,7 +2,6 @@ const {
   DEVELOPMENT_CLIENT_APP_URL,
   PRODUCTION_CLIENT_APP_URL,
   getClientAppUrl,
-  getClientResetPasswordUrl,
   isProduction,
 } = require('./clientUrls');
 
@@ -25,7 +24,6 @@ const buildAllowedOrigins = () => {
     .filter(Boolean);
 
   addOriginFromUrl(allowedOrigins, getClientAppUrl());
-  addOriginFromUrl(allowedOrigins, getClientResetPasswordUrl());
 
   if (!isProduction()) {
     addOriginFromUrl(allowedOrigins, DEVELOPMENT_CLIENT_APP_URL);

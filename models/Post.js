@@ -31,6 +31,7 @@ const postSchema = new mongoose.Schema(
       name: { type: String, default: '' },
       avatar: { type: String, default: '' },
       location: { type: String, default: '' },
+      verified: { type: Boolean, default: true },
     },
     type: {
       type: String,

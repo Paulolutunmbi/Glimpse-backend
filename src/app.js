@@ -2,7 +2,6 @@ const express = require('express');
 const cors = require('cors');
 
 const apiRoutes = require('./routes');
-const emailPreviewRoutes = require('../routes/emailPreviewRoutes');
 const { errorHandler, notFound } = require('../middleware/errorHandler');
 const { buildCorsOptions, resolveAllowedOrigin } = require('./config/cors');
 
@@ -25,7 +24,6 @@ const createApp = ({ allowedOrigins }) => {
   app.use(express.json());
 
   app.use('/api', apiRoutes);
-  app.use('/dev/email-preview', emailPreviewRoutes);
 
   app.use(notFound);
   app.use(errorHandler);

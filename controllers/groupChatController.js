@@ -26,7 +26,7 @@ exports.createGroupChat = async (req, res) => {
     });
 
     await group.save();
-    await group.populate('admin members admins', 'username profile avatar');
+    await group.populate('admin members admins', 'username profile avatar verified');
 
     res.status(201).json({ message: 'Group created', data: group });
   } catch (error) {
@@ -40,7 +40,7 @@ exports.getGroupChats = async (req, res) => {
     const userId = req.userId;
 
     const groups = await GroupChat.find({ members: userId })
-      .populate('admin members admins lastMessage', 'username profile avatar text')
+      .populate('admin members admins lastMessage', 'username profile avatar verified text')
       .sort({ lastMessageAt: -1 })
       .lean();
 
@@ -57,7 +57,7 @@ exports.getGroupChat = async (req, res) => {
     const userId = req.userId;
 
     const group = await GroupChat.findById(groupId)
-      .populate('admin members admins', 'username profile avatar email');
+      .populate('admin members admins', 'username profile avatar verified');
 
     if (!group) {
       return res.status(404).json({ error: 'Group not found' });
@@ -97,7 +97,7 @@ exports.updateGroupChat = async (req, res) => {
     if (image !== undefined) group.image = image;
 
     await group.save();
-    await group.populate('admin members admins', 'username profile avatar');
+    await group.populate('admin members admins', 'username profile avatar verified');
 
     res.json({ message: 'Group updated', data: group });
   } catch (error) {
@@ -125,7 +125,7 @@ exports.getGroupMessages = async (req, res) => {
     let query = GroupMessage.find({
       group: groupId,
       deletedAt: null,
-    }).populate('sender', 'username profile avatar email');
+    }).populate('sender', 'username profile avatar verified');
 
     if (cursor) {
       query = query.where('_id').lt(cursor);
@@ -177,7 +177,7 @@ exports.sendGroupMessage = async (req, res) => {
     });
 
     await message.save();
-    await message.populate('sender', 'username profile avatar email');
+    await message.populate('sender', 'username profile avatar verified');
 
     // Update group last message
     group.lastMessage = message._id;
@@ -261,7 +261,7 @@ exports.addGroupMember = async (req, res) => {
 
     group.members.push(memberId);
     await group.save();
-    await group.populate('admin members admins', 'username profile avatar');
+    await group.populate('admin members admins', 'username profile avatar verified');
 
     // Broadcast to socket
     const io = req.app.get('io');
@@ -299,7 +299,7 @@ exports.removeGroupMember = async (req, res) => {
     group.members = group.members.filter(id => String(id) !== String(memberId));
     group.admins = group.admins.filter(id => String(id) !== String(memberId));
     await group.save();
-    await group.populate('admin members admins', 'username profile avatar');
+    await group.populate('admin members admins', 'username profile avatar verified');
 
     // Broadcast to socket
     const io = req.app.get('io');

@@ -15,7 +15,7 @@ const search = async (req, res) => {
     const users = await User.find({
       $or: [{ username: userRegex }, { name: userRegex }, { fullName: userRegex }],
     })
-      .select('username name fullName avatar profile profilePicture followers following stats')
+      .select('username name fullName avatar profile profilePicture followers following stats verified')
       .limit(limit);
 
     const visibilityQuery = await buildVisibilityQuery(req.userId);

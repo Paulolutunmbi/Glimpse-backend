@@ -6,6 +6,7 @@ const buildActorSnapshot = (actor) => ({
   name: actor?.name || actor?.fullName || '',
   username: actor?.username || '',
   avatar: actor?.profile?.avatar || actor?.profilePicture || actor?.avatar || '',
+  verified: actor?.verified ?? actor?.isVerified ?? true,
 });
 
 const buildSystemSnapshot = () => ({
@@ -38,7 +39,7 @@ const createNotification = async ({
 
     const actor = actorId
       ? await User.findById(actorId)
-          .select('name fullName username avatar profile profilePicture')
+          .select('name fullName username avatar profile profilePicture verified')
           .lean()
       : null;
 

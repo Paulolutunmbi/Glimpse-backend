@@ -9,7 +9,6 @@ const {
   uploadAvatar,
   uploadCoverImage: uploadCoverImageController,
   updatePreferences,
-  sendPasswordResetEmail,
   followUser,
   unfollowUser,
   savePost,
@@ -47,7 +46,6 @@ router.post('/upload-avatar', auth, uploadProfilePicture, uploadAvatar);
 router.post('/upload-profile-picture', auth, uploadProfilePicture, uploadAvatar);
 router.post('/upload-cover-image', auth, uploadCoverImage, uploadCoverImageController);
 router.post('/preferences', auth, updatePreferences);
-router.post('/reset-password', auth, sendPasswordResetEmail);
 router.delete('/delete', auth, async (req, res, next) => {
   // forwarded to controller to avoid circular require issues
   try {

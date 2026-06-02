@@ -7,7 +7,6 @@ const Conversation = require('../models/Conversation');
 const { deleteMediaAssets } = require('../services/mediaService');
 const { isAdminEmail } = require('../utils/admin');
 const { getIO } = require('../socket');
-const { validateEmailTransportEnv } = require('../utils/email/emailService');
 
 const buildUserSummary = (user) => {
   const lastLogin = user.settings?.security?.loginHistory?.[0];
@@ -80,25 +79,6 @@ const fillSeries = (seriesMap, days) => {
 
 const verifyAdmin = async (req, res) => {
   return res.status(200).json({ success: true, admin: true });
-};
-
-const getEmailHealth = async (req, res) => {
-  const validation = validateEmailTransportEnv();
-  if (!validation.ok) {
-    return res.status(500).json({
-      success: false,
-      provider: 'resend',
-      configured: false,
-      message: validation.message,
-    });
-  }
-
-  return res.status(200).json({
-    success: true,
-    provider: 'resend',
-    configured: true,
-    message: 'Resend configuration is present',
-  });
 };
 
 const emitAdminStateChange = (eventName, payload = {}) => {
@@ -418,7 +398,6 @@ const deleteUser = async (req, res) => {
 
 module.exports = {
   verifyAdmin,
-  getEmailHealth,
   listUsers,
   getUserDetails,
   getAnalytics,

@@ -25,20 +25,9 @@ const getClientAppUrl = () =>
     )
   );
 
-const getClientResetPasswordUrl = () =>
-  trimTrailingSlash(process.env.CLIENT_RESET_PASSWORD_URL || `${getClientAppUrl()}/reset-password`);
-
-const buildResetPasswordUrl = (token) => {
-  const resetUrl = new URL(getClientResetPasswordUrl());
-  resetUrl.searchParams.set('token', token);
-  return resetUrl.toString();
-};
-
 module.exports = {
   DEVELOPMENT_CLIENT_APP_URL,
   PRODUCTION_CLIENT_APP_URL,
-  buildResetPasswordUrl,
   getClientAppUrl,
-  getClientResetPasswordUrl,
   isProduction,
 };

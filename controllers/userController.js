@@ -1,23 +1,11 @@
 const crypto = require('crypto');
 const { getCloudinary, uploadBuffer } = require('../config/cloudinary');
 const User = require('../models/User');
-const { sendPasswordResetEmail: sendPasswordResetTemplate } = require('../utils/email/emailService');
 const { getIO } = require('../socket');
 const Post = require('../models/Post');
 const { createNotification } = require('../services/notificationService');
 const { buildVisibilityQuery } = require('../utils/visibility');
 const { isAdminEmail } = require('../utils/admin');
-const { buildResetPasswordUrl, getClientResetPasswordUrl } = require('../src/config/clientUrls');
-
-const RESET_TOKEN_TTL_MS = 15 * 60 * 1000;
-
-const maskEmail = (email) => {
-  const [name, domain] = String(email || '').split('@');
-  if (!domain) return 'unknown';
-  const safeName = name.length <= 2 ? `${name[0] || '*'}*` : `${name.slice(0, 2)}***`;
-  return `${safeName}@${domain}`;
-};
-
 const createLogContext = (req, flow) => ({
   flow,
   id: crypto.randomBytes(6).toString('hex'),
@@ -118,7 +106,7 @@ const sanitizeUser = (user) => {
     isFirstLogin: user.isFirstLogin,
     profileCompleted: user.profileCompleted,
     onboardingCompleted: user.onboardingCompleted,
-    isVerified: user.isVerified,
+    verified: user.verified ?? user.isVerified ?? true,
     isBanned: Boolean(user.isBanned),
     isAdmin: isAdminEmail(user.email),
     createdAt: user.createdAt,
@@ -238,9 +226,6 @@ const deleteAccount = async (req, res) => {
     await User.updateMany({ followers: user._id }, { $pull: { followers: user._id } }).session(mongoSession);
     await User.updateMany({ following: user._id }, { $pull: { following: user._id } }).session(mongoSession);
 
-    // Capture email for post-delete actions
-    const userEmail = user.email;
-
     // Remove cloudinary images if present (best-effort)
     try {
       const { getCloudinary } = require('../config/cloudinary');
@@ -261,23 +246,7 @@ const deleteAccount = async (req, res) => {
     await mongoSession.commitTransaction();
     mongoSession.endSession();
 
-    // Send account-deleted email with feedback link (best-effort)
-    try {
-      const emailService = require('../utils/email/emailService');
-      const { getClientUrl, buildResetPasswordUrl } = require('../src/config/clientUrls');
-      const clientBase = (process.env.CLIENT_URL || getClientUrl?.() || '').replace(/\/$/, '');
-      const feedbackUrl = `${clientBase}/goodbye?email=${encodeURIComponent(userEmail)}`;
-      await emailService.sendTemplateEmail({
-        to: userEmail,
-        template: 'accountDeletedEmail',
-        data: { name: user.name || user.username || '', feedbackUrl },
-        version: 'v1',
-      });
-    } catch (errEmail) {
-      logWarn(ctx, 'Failed to send account deleted email', errEmail.message || errEmail);
-    }
-
-    return res.status(200).json({ success: true, message: 'Account deleted', email: userEmail });
+    return res.status(200).json({ success: true, message: 'Account deleted' });
   } catch (err) {
     if (mongoSession) {
       try {
@@ -933,64 +902,6 @@ const getSavedMoments = async (req, res) => {
   }
 };
 
-const hashValue = (value) => crypto.createHash('sha256').update(value).digest('hex');
-
-const sendPasswordResetEmail = async (req, res) => {
-  const ctx = createLogContext(req, 'settingsResetPassword');
-  try {
-    const user = await User.findById(req.userId).select('+resetPasswordToken');
-
-    logInfo(ctx, 'Route hit', { ip: ctx.ip, userId: String(req.userId || '') });
-
-    if (!user) {
-      logWarn(ctx, 'User not found');
-      return res.status(404).json({ success: false, message: 'User not found' });
-    }
-
-    const rawToken = crypto.randomBytes(32).toString('hex');
-    user.resetPasswordToken = hashValue(rawToken);
-    user.resetPasswordExpires = new Date(Date.now() + RESET_TOKEN_TTL_MS);
-    await user.save({ validateBeforeSave: false });
-
-    logInfo(ctx, 'Reset token saved to user');
-
-    const resetBaseUrl = getClientResetPasswordUrl();
-    const resetUrl = buildResetPasswordUrl(rawToken);
-
-    if (!process.env.CLIENT_RESET_PASSWORD_URL) {
-      logWarn(ctx, 'CLIENT_RESET_PASSWORD_URL not set. Using derived reset URL.', {
-        resetBaseUrl,
-      });
-    }
-
-    logInfo(ctx, 'Reset URL generated', { resetBaseUrl });
-
-    try {
-      logInfo(ctx, 'Sending reset email', { to: maskEmail(user.email) });
-      const result = await sendPasswordResetTemplate(user.email, { resetUrl, name: user.name });
-      logInfo(ctx, 'Reset email sent successfully', {
-        messageId: result?.data?.id || result?.id,
-      });
-    } catch (err) {
-      logError(ctx, 'Failed to send reset email', err);
-      user.resetPasswordToken = undefined;
-      user.resetPasswordExpires = undefined;
-      await user.save({ validateBeforeSave: false });
-
-      return res.status(502).json({
-        success: false,
-        message: 'Reset email could not be sent. Please try again later.',
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: 'Reset link sent to your email.',
-    });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: 'Failed to send reset email' });
-  }
-};
 
 const getUserProfileByUsername = async (req, res) => {
   try {
@@ -1039,7 +950,6 @@ module.exports = {
   uploadAvatar,
   uploadCoverImage,
   updatePreferences,
-  sendPasswordResetEmail,
   followUser,
   unfollowUser,
   savePost,

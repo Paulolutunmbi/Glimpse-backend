@@ -136,6 +136,7 @@ const buildAuthorSnapshot = (author) => ({
   name: author?.fullName || author?.name || '',
   avatar: author?.profile?.avatar || author?.profilePicture || author?.avatar || '',
   location: author?.extraInfo || '',
+  verified: author?.verified ?? author?.isVerified ?? true,
 });
 
 const applyPostBodyUpdates = (post, body = {}) => {
@@ -565,6 +566,7 @@ const createPost = async (req, res) => {
         name: author.fullName || author.name || '',
         avatar: author.profile?.avatar || author.profilePicture || author.avatar || '',
         location: author.extraInfo || '',
+        verified: author.verified ?? author.isVerified ?? true,
       },
       visibility: visibility || 'public',
       title: title || '',

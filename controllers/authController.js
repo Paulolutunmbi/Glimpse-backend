@@ -1,40 +1,11 @@
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
-const {
-  sendVerificationEmail,
-  sendPasswordResetEmail,
-  sendPasswordChangedEmail,
-  sendWelcomeEmail,
-} = require('../utils/email/emailService');
-const { buildResetPasswordUrl, getClientResetPasswordUrl } = require('../src/config/clientUrls');
-
-const VERIFICATION_CODE_TTL_MS = 10 * 60 * 1000;
-const RESET_TOKEN_TTL_MS = 15 * 60 * 1000;
 const MAX_ACTIVE_SESSIONS = 20;
-const resolveForgotPasswordTimeoutMs = () => {
-  const emailTimeoutMs = Number(process.env.EMAIL_SEND_TIMEOUT_MS || 10000);
-  const defaultTimeoutMs = Math.max(15000, emailTimeoutMs + 5000);
-  const raw = Number(process.env.FORGOT_PASSWORD_EMAIL_TIMEOUT_MS || defaultTimeoutMs);
-  if (!Number.isFinite(raw) || raw <= 0) return defaultTimeoutMs;
-  return Math.max(raw, emailTimeoutMs);
-};
 
 const isValidEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
-const maskEmail = (email) => {
-  const [name, domain] = String(email || '').split('@');
-  if (!domain) return 'unknown';
-  const safeName = name.length <= 2 ? `${name[0] || '*'}*` : `${name.slice(0, 2)}***`;
-  return `${safeName}@${domain}`;
-};
-
 const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
-
-const hashValue = (value) => crypto.createHash('sha256').update(value).digest('hex');
-
-const generateVerificationCode = () =>
-  crypto.randomInt(100000, 1000000).toString();
 
 const { isAdminEmail } = require('../utils/admin');
 
@@ -60,7 +31,7 @@ const sanitizeUser = (user) => {
     isFirstLogin: user.isFirstLogin,
     profileCompleted: user.profileCompleted,
     onboardingCompleted: user.onboardingCompleted,
-    isVerified: user.isVerified,
+    verified: user.verified ?? user.isVerified ?? true,
     isBanned: Boolean(user.isBanned),
     isAdmin: isAdminEmail(user.email),
     createdAt: user.createdAt,
@@ -131,22 +102,6 @@ const createToken = (user, sessionId) =>
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
   });
 
-const withTimeout = async (promise, timeoutMs, code = 'TIMEOUT') => {
-  let timeoutId;
-  const timeoutPromise = new Promise((_, reject) => {
-    timeoutId = setTimeout(() => {
-      const err = new Error(`Operation timed out after ${timeoutMs}ms`);
-      err.code = code;
-      reject(err);
-    }, timeoutMs);
-  });
-
-  try {
-    return await Promise.race([promise, timeoutPromise]);
-  } finally {
-    if (timeoutId) clearTimeout(timeoutId);
-  }
-};
 
 const trackLoginSession = async (user, req, sessionId) => {
   if (!user.settings) user.settings = {};
@@ -177,13 +132,6 @@ const trackLoginSession = async (user, req, sessionId) => {
   await user.save({ validateBeforeSave: false });
 };
 
-const attachVerificationCode = (user) => {
-  const code = generateVerificationCode();
-  user.verificationCode = hashValue(code);
-  user.verificationCodeExpires = new Date(Date.now() + VERIFICATION_CODE_TTL_MS);
-  return code;
-};
-
 const register = async (req, res) => {
   try {
     const { name, fullName, username, email, password } = req.body || {};
@@ -208,7 +156,7 @@ const register = async (req, res) => {
       });
     }
 
-    const existingUser = await User.findOne({ email: normalizedEmail }).select('+verificationCode');
+    const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
       return res.status(409).json({ success: false, message: 'Email already registered' });
     }
@@ -219,26 +167,21 @@ const register = async (req, res) => {
       username: displayName,
       email: normalizedEmail,
       password,
-      isVerified: false,
+      verified: true,
     });
-    const verificationCode = attachVerificationCode(user);
-
     await user.save({ validateBeforeSave: false });
 
-    try {
-      await sendVerificationEmail(user.email, { code: verificationCode, name: user.name });
-    } catch (err) {
-      await User.findByIdAndDelete(user._id);
-      return res.status(502).json({
-        success: false,
-        message: 'Account was not created because the verification email could not be sent',
-      });
-    }
+    const sessionId = createSessionId();
+    await trackLoginSession(user, req, sessionId);
+    const token = createToken(user, sessionId);
+    const redirectTo = '/profile-setup';
 
     return res.status(201).json({
       success: true,
-      message: 'Account created. Verification code sent to email.',
-      data: { user: sanitizeUser(user) },
+      message: 'Account created successfully.',
+      token,
+      redirectTo,
+      data: { token, user: sanitizeUser(user), redirectTo },
     });
   } catch (err) {
     if (err.code === 11000) {
@@ -249,104 +192,22 @@ const register = async (req, res) => {
   }
 };
 
-const verifyEmail = async (req, res) => {
-  try {
-    const { email, code } = req.body || {};
-    const normalizedEmail = normalizeEmail(email);
-    const normalizedCode = String(code || '').trim();
-
-    if (!normalizedEmail || !normalizedCode) {
-      return res.status(400).json({ success: false, message: 'email and code are required' });
-    }
-
-    if (!/^\d{6}$/.test(normalizedCode)) {
-      return res.status(400).json({ success: false, message: 'Verification code must be 6 digits' });
-    }
-
-    const user = await User.findOne({ email: normalizedEmail }).select('+verificationCode');
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
-    }
-
-    if (user.isVerified) {
-      return res.status(200).json({
-        success: true,
-        message: 'Email already verified',
-        data: { user: sanitizeUser(user) },
-      });
-    }
-
-    const isExpired =
-      !user.verificationCodeExpires || user.verificationCodeExpires.getTime() < Date.now();
-    const isMatch = user.verificationCode === hashValue(normalizedCode);
-
-    if (!isMatch || isExpired) {
-      return res.status(400).json({ success: false, message: 'Invalid or expired verification code' });
-    }
-
-    user.isVerified = true;
-    user.verificationCode = undefined;
-    user.verificationCodeExpires = undefined;
-    await user.save();
-
-    sendWelcomeEmail(user.email, { name: user.name }).catch((err) => {
-      console.error('Failed to send welcome email:', err.message);
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: 'Email verified successfully',
-      data: { user: sanitizeUser(user) },
-    });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: 'Failed to verify email' });
-  }
-};
-
-const resendVerificationCode = async (req, res) => {
-  try {
-    const normalizedEmail = normalizeEmail(req.body?.email);
-
-    if (!normalizedEmail) {
-      return res.status(400).json({ success: false, message: 'email is required' });
-    }
-
-    const user = await User.findOne({ email: normalizedEmail }).select('+verificationCode');
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
-    }
-
-    if (user.isVerified) {
-      return res.status(200).json({
-        success: true,
-        message: 'Email already verified',
-        data: { user: sanitizeUser(user) },
-      });
-    }
-
-    const verificationCode = attachVerificationCode(user);
-    await user.save();
-    await sendVerificationEmail(user.email, { code: verificationCode, name: user.name });
-
-    return res.status(200).json({
-      success: true,
-      message: 'A new verification code has been sent',
-    });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: 'Failed to resend verification code' });
-  }
-};
-
 const login = async (req, res) => {
   try {
-    const { email, password } = req.body || {};
-    const normalizedEmail = normalizeEmail(email);
+    const { email, username, identifier, password } = req.body || {};
+    const loginId = String(identifier || email || username || '').trim();
+    const normalizedLoginId = loginId.toLowerCase();
 
-    if (!normalizedEmail || !password) {
-      return res.status(400).json({ success: false, message: 'email and password are required' });
+    if (!normalizedLoginId || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'username/email and password are required',
+      });
     }
 
-    const user = await User.findOne({ email: normalizedEmail }).select('+password');
+    const user = await User.findOne({
+      $or: [{ email: normalizedLoginId }, { username: normalizedLoginId }],
+    }).select('+password');
     if (!user) {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
@@ -358,10 +219,6 @@ const login = async (req, res) => {
 
     if (user.isBanned) {
       return res.status(403).json({ success: false, message: 'Account banned', code: 'BANNED' });
-    }
-
-    if (!user.isVerified) {
-      return res.status(403).json({ success: false, message: 'Please verify your email first' });
     }
 
     const sessionId = createSessionId();
@@ -405,169 +262,67 @@ const getMe = async (req, res) => {
 const forgotPassword = async (req, res) => {
   const ctx = createLogContext(req, 'forgotPassword');
   try {
-    const timeoutMs = resolveForgotPasswordTimeoutMs();
-    const normalizedEmail = normalizeEmail(req.body?.email);
-
-    logInfo(ctx, 'Route hit', {
-      ip: ctx.ip,
-      email: normalizedEmail ? maskEmail(normalizedEmail) : 'missing',
-    });
-
-    logInfo(ctx, 'Email received', {
-      hasEmail: Boolean(normalizedEmail),
-    });
-
-    if (!normalizedEmail || !isValidEmail(normalizedEmail)) {
-      logWarn(ctx, 'Invalid email input');
-      return res.status(400).json({
-        success: false,
-        message: 'Enter a valid email address',
-      });
-    }
-
-    const user = await User.findOne({ email: normalizedEmail }).select('+resetPasswordToken');
-
-    logInfo(ctx, 'User lookup completed', { userFound: Boolean(user) });
-
-    // Always respond the same way (security best practice)
-    const response = {
-      success: true,
-      message: 'If an account exists, a reset link has been sent.',
-    };
-
-    if (!user) {
-      logInfo(ctx, 'No account found. Returning generic success response.');
-      return res.status(200).json(response);
-    }
-
-    // Generate token
-    const rawToken = crypto.randomBytes(32).toString('hex');
-
-    logInfo(ctx, 'Reset token generated');
-
-    user.resetPasswordToken = hashValue(rawToken);
-    user.resetPasswordExpires = new Date(Date.now() + RESET_TOKEN_TTL_MS);
-    await user.save({ validateBeforeSave: false });
-
-    logInfo(ctx, 'Reset token saved to user');
-
-    const resetBaseUrl = getClientResetPasswordUrl();
-
-    if (!process.env.CLIENT_RESET_PASSWORD_URL) {
-      logWarn(ctx, 'CLIENT_RESET_PASSWORD_URL not set. Using derived reset URL.', {
-        resetBaseUrl,
-      });
-    }
-
-    const resetUrl = buildResetPasswordUrl(rawToken);
-
-    logInfo(ctx, 'Reset URL generated', { resetBaseUrl });
-
-    logInfo(ctx, 'Sending reset email', {
-      to: maskEmail(user.email),
-      timeoutMs,
-    });
-
-    try {
-      const result = await withTimeout(
-        sendPasswordResetEmail(user.email, {
-          resetUrl,
-          name: user.name,
-        }),
-        timeoutMs,
-        'EMAIL_SEND_TIMEOUT'
-      );
-      logInfo(ctx, 'Reset email sent successfully', {
-        messageId: result?.data?.id || result?.id,
-      });
-    } catch (err) {
-      logError(ctx, 'Reset email failed', err);
-      user.resetPasswordToken = undefined;
-      user.resetPasswordExpires = undefined;
-      await user.save({ validateBeforeSave: false });
-
-      return res.status(502).json({
-        success: false,
-        message: 'Reset email could not be sent. Please try again later.',
-      });
-    }
-
-    return res.status(200).json(response);
-  } catch (err) {
-    logError(ctx, 'Forgot password error', err);
-
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to start password reset',
-    });
-  }
-};
-
-const resetPassword = async (req, res) => {
-  const ctx = createLogContext(req, 'resetPassword');
-  try {
-    const { token, password, newPassword } = req.body || {};
-    const rawToken = String(token || '').trim();
+    const { username, email, newPassword, password } = req.body || {};
+    const normalizedEmail = normalizeEmail(email);
+    const normalizedUsername = String(username || '').trim().toLowerCase();
     const nextPassword = String(newPassword || password || '');
 
     logInfo(ctx, 'Route hit', {
       ip: ctx.ip,
-      hasToken: Boolean(rawToken),
+      hasUsername: Boolean(normalizedUsername),
+      hasEmail: Boolean(normalizedEmail),
       passwordLength: nextPassword.length,
     });
 
-    if (!rawToken || !nextPassword) {
-      logWarn(ctx, 'Missing token or password');
-      return res.status(400).json({ success: false, message: 'token and new password are required' });
+    if (!normalizedUsername || !normalizedEmail || !nextPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'username, account email, and new password are required',
+      });
+    }
+
+    if (!isValidEmail(normalizedEmail)) {
+      return res.status(400).json({ success: false, message: 'Enter a valid email address' });
     }
 
     if (nextPassword.length < 8) {
-      logWarn(ctx, 'Password too short');
       return res.status(400).json({
         success: false,
         message: 'Password must be at least 8 characters',
       });
     }
 
-    const hashedToken = hashValue(rawToken);
     const user = await User.findOne({
-      resetPasswordToken: hashedToken,
-      resetPasswordExpires: { $gt: new Date() },
-    }).select('+password +resetPasswordToken');
-
-    logInfo(ctx, 'Reset token lookup', { userFound: Boolean(user) });
+      email: normalizedEmail,
+      username: normalizedUsername,
+    }).select('+password');
 
     if (!user) {
-      return res.status(400).json({ success: false, message: 'Invalid or expired reset token' });
+      return res.status(400).json({
+        success: false,
+        message: 'Account details could not be validated',
+      });
     }
 
     user.password = nextPassword;
-    user.resetPasswordToken = undefined;
-    user.resetPasswordExpires = undefined;
     await user.save({ validateBeforeSave: false });
-
-    logInfo(ctx, 'Password updated and reset token cleared', { userId: String(user._id) });
-
-    sendPasswordChangedEmail(user.email, { name: user.name }).catch((err) => {
-      logError(ctx, 'Failed to send password changed email', err);
-    });
 
     return res.status(200).json({
       success: true,
-      message: 'Password reset successful. You can now log in.',
+      message: 'Password updated. You can now log in.',
     });
   } catch (err) {
-    logError(ctx, 'Reset password error', err);
-    return res.status(500).json({ success: false, message: 'Failed to reset password' });
+    logError(ctx, 'Forgot password error', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to reset password',
+    });
   }
 };
 
 module.exports = {
   register,
   login,
-  verifyEmail,
-  resendVerificationCode,
   forgotPassword,
-  resetPassword,
   getMe,
 };

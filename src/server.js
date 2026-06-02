@@ -5,7 +5,6 @@ const createApp = require('./app');
 const { connectToDatabase } = require('./config/db');
 const { buildAllowedOrigins, buildSocketCorsOptions } = require('./config/cors');
 const { initSocket } = require('./sockets');
-const { validateEmailTransportEnv } = require('../utils/sendEmail');
 
 dotenv.config();
 
@@ -39,16 +38,3 @@ connectToDatabase()
     console.error('Failed to start server:', err.message || err);
     process.exit(1);
   });
-
-const emailConfig = validateEmailTransportEnv();
-
-if (!emailConfig.ok) {
-  const message = `EMAIL CONFIG WARNING: ${emailConfig.message}. Password reset and verification emails will fail until this is fixed.`;
-  if (process.env.NODE_ENV === 'production') {
-    console.error(message);
-  } else {
-    console.warn(message);
-  }
-} else {
-  console.log('Resend email configuration loaded');
-}

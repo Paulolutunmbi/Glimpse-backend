@@ -27,6 +27,7 @@ const serializeComment = (comment, viewerId) => {
   const isOwner = String(payload?.userId || '') === String(viewerId || '');
   return {
     ...payload,
+    verified: payload?.verified ?? true,
     isEdited: Boolean(payload?.isEdited),
     canEdit: isOwner ? canMutateComment(payload, 'edit') : false,
     canDelete: isOwner ? canMutateComment(payload, 'delete') : false,
@@ -46,7 +47,7 @@ const createComment = async (req, res) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const user = await User.findById(req.userId).select('username avatar profilePicture');
+    const user = await User.findById(req.userId).select('username avatar profilePicture verified');
     if (!user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
@@ -71,6 +72,7 @@ const createComment = async (req, res) => {
       userId: String(req.userId),
       username: user.username,
       avatar: user.profilePicture || user.avatar || '',
+      verified: user.verified ?? user.isVerified ?? true,
       text: trimmedText,
       editWindowUntil: addMinutes(new Date(), EDIT_WINDOW_MINUTES),
       deleteWindowUntil: addMinutes(new Date(), DELETE_WINDOW_MINUTES),

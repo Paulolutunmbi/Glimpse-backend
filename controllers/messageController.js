@@ -25,7 +25,7 @@ const getConversations = async (req, res) => {
   try {
     const conversations = await Conversation.find({ participants: req.userId })
       .sort({ lastMessageAt: -1 })
-      .populate('participants', 'username name fullName avatar profile profilePicture');
+      .populate('participants', 'username name fullName avatar profile profilePicture verified');
 
     const viewerId = new mongoose.Types.ObjectId(req.userId);
     const conversationIds = conversations.map((conv) => conv._id);
@@ -56,7 +56,7 @@ const createConversation = async (req, res) => {
 
     const participants = [String(req.userId), String(targetId)].sort();
     const existing = await Conversation.findOne({ participants: { $all: participants, $size: 2 } })
-      .populate('participants', 'username name fullName avatar profile profilePicture');
+      .populate('participants', 'username name fullName avatar profile profilePicture verified');
 
     if (existing) {
       return res.status(200).json({ data: existing });
@@ -64,7 +64,7 @@ const createConversation = async (req, res) => {
 
     const conversation = await Conversation.create({ participants });
     const populated = await Conversation.findById(conversation._id)
-      .populate('participants', 'username name fullName avatar profile profilePicture');
+      .populate('participants', 'username name fullName avatar profile profilePicture verified');
 
     return res.status(201).json({ data: populated });
   } catch (err) {
@@ -91,7 +91,7 @@ const getMessages = async (req, res) => {
     const messages = await Message.find({ conversation: id, ...cursorQuery })
       .sort({ createdAt: -1, _id: -1 })
       .limit(limit + 1)
-      .populate('sender', 'username name fullName avatar profile profilePicture');
+      .populate('sender', 'username name fullName avatar profile profilePicture verified');
 
     const hasMore = messages.length > limit;
     const sliced = hasMore ? messages.slice(0, limit) : messages;
@@ -135,7 +135,7 @@ const sendMessage = async (req, res) => {
     await conversation.save();
 
     const populated = await Message.findById(message._id)
-      .populate('sender', 'username name fullName avatar profile profilePicture');
+      .populate('sender', 'username name fullName avatar profile profilePicture verified');
 
     try {
       const io = getIO();

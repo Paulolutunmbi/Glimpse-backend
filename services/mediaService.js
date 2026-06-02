@@ -36,11 +36,6 @@ const buildImageTransformations = () => [
   { quality: 'auto', fetch_format: 'auto' },
 ];
 
-const buildVideoTransformations = () => [
-  { quality: 'auto', fetch_format: 'auto' },
-  { bit_rate: 'adaptive' },
-];
-
 const uploadMediaFile = async ({ file, folder, publicId }) => {
   const validation = validateMediaFile(file);
   if (!validation.valid) {
@@ -50,9 +45,7 @@ const uploadMediaFile = async ({ file, folder, publicId }) => {
   }
 
   const resourceType = validation.isVideo ? 'video' : 'image';
-  const transformation = validation.isVideo
-    ? buildVideoTransformations()
-    : buildImageTransformations();
+  const transformation = validation.isVideo ? undefined : buildImageTransformations();
 
   let result;
   try {
@@ -63,7 +56,7 @@ const uploadMediaFile = async ({ file, folder, publicId }) => {
         folder,
         public_id: publicId,
         resource_type: resourceType,
-        transformation,
+        ...(transformation ? { transformation } : {}),
         format: undefined,
       });
     } else if (file.buffer) {

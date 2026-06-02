@@ -5,11 +5,8 @@ Base URL: `${API_BASE_URL}/api/auth`
 ## Endpoints
 
 - `POST /register` or `POST /signup`
-- `POST /verify` or `POST /verify-email`
-- `POST /resend-verification`
 - `POST /login`
 - `POST /forgot-password`
-- `POST /reset-password`
 
 ## Axios Examples
 
@@ -18,13 +15,6 @@ await API.post('/api/auth/register', {
   name: 'Ada Lovelace',
   email: 'ada@example.com',
   password: 'Password123',
-});
-```
-
-```js
-await API.post('/api/auth/verify', {
-  email: 'ada@example.com',
-  code: '123456',
 });
 ```
 
@@ -39,13 +29,8 @@ localStorage.setItem('token', data.token);
 
 ```js
 await API.post('/api/auth/forgot-password', {
+  username: 'ada',
   email: 'ada@example.com',
-});
-```
-
-```js
-await API.post('/api/auth/reset-password', {
-  token: new URLSearchParams(window.location.search).get('token'),
   newPassword: 'NewPassword123',
 });
 ```

@@ -1,6 +1,6 @@
 # Glimpse Backend
 
-Glimpse Backend is an Express and MongoDB API that powers authentication, posts, comments, discovery, profile management, settings, email delivery, and realtime updates for the Glimpse frontend.
+Glimpse Backend is an Express and MongoDB API that powers authentication, posts, comments, discovery, profile management, settings, and realtime updates for the Glimpse frontend.
 
 ## Tech Stack
 
@@ -12,12 +12,11 @@ Glimpse Backend is an Express and MongoDB API that powers authentication, posts,
 | Auth | JSON Web Tokens, bcryptjs |
 | Realtime | Socket.IO |
 | Uploads | Multer + Cloudinary |
-| Email | Resend |
 | Utilities | dotenv, cors |
 
 ## Features
 
-- Email registration, verification, login, and password reset.
+- Account registration, login, direct password reset, and JWT session validation.
 - JWT session validation with active-session tracking.
 - Post CRUD, likes, views, shares, and feed retrieval.
 - Public post hydration for shareable deep links.
@@ -25,7 +24,6 @@ Glimpse Backend is an Express and MongoDB API that powers authentication, posts,
 - User profile, follow, save, and settings APIs.
 - Discovery endpoint for trending content and suggested creators.
 - Cloudinary-backed media uploads for avatars, covers, and post media.
-- Email template rendering, preview tooling, and delivery rate limiting.
 - Centralized JSON error handling and 404 handling.
 
 ## Folder Structure
@@ -45,10 +43,7 @@ Glimpse Backend is an Express and MongoDB API that powers authentication, posts,
 | `middleware/` | Auth, rate limiting, upload handling, and error handling |
 | `services/` | Media upload and deletion services |
 | `config/` | External service configuration such as Cloudinary |
-| `utils/` | Email system, templates, queue, analytics, and helpers |
-| `scripts/` | Utility scripts such as email preview rendering |
-| `assets/` | Static email assets |
-| `tmp/email-preview/` | Generated HTML and text previews from the email script |
+| `utils/` | Shared helpers |
 
 ## Installation
 
@@ -69,22 +64,9 @@ Glimpse Backend is an Express and MongoDB API that powers authentication, posts,
 | `JWT_SECRET` | Yes | Secret used to sign and verify JWTs |
 | `JWT_EXPIRES_IN` | No | JWT lifetime, defaults to `7d` |
 | `CLIENT_ORIGINS` | No | Comma-separated list of allowed frontend origins for CORS |
-| `CLIENT_APP_URL` | No | Canonical frontend URL used in email links |
-| `CLIENT_ORIGIN` | No | Fallback frontend URL used in email links |
-| `CLIENT_RESET_PASSWORD_URL` | No | Frontend reset-password URL. Defaults to `CLIENT_APP_URL/reset-password`; local fallback is `http://localhost:5173/reset-password`, production fallback is the Vercel app URL |
+| `CLIENT_APP_URL` | No | Canonical frontend URL used for CORS |
+| `CLIENT_ORIGIN` | No | Fallback frontend URL used for CORS |
 | `CLIENT_POST_ROUTE_PREFIX` | No | Frontend route prefix for post deep links, defaults to `/post` |
-| `RESEND_API_KEY` | Yes | Resend API key used for transactional email |
-| `RESEND_FROM_EMAIL` | Yes | Verified Resend sender, for example `Glimpse <no-reply@yourdomain.com>` |
-| `EMAIL_SEND_TIMEOUT_MS` | No | Per-email Resend API timeout, defaults to `10000` |
-| `FORGOT_PASSWORD_EMAIL_TIMEOUT_MS` | No | Outer timeout for forgot-password email delivery; should be greater than or equal to `EMAIL_SEND_TIMEOUT_MS` |
-| `SUPPORT_EMAIL` | No | Support email address used by the email brand layer |
-| `EMAIL_PREVIEW_ENABLED` | No | Allows `/dev/email-preview` in production when set to `true` |
-| `EMAIL_TRACKING_BASE_URL` | No | Base URL used for email tracking links |
-| `EMAIL_CLICK_TRACKING_ENABLED` | No | Enables click tracking when set to `true` |
-| `EMAIL_RATE_LIMIT_WINDOW_MS` | No | Email rate-limit window |
-| `EMAIL_RATE_LIMIT_MAX_PER_RECIPIENT` | No | Per-recipient email limit |
-| `EMAIL_RATE_LIMIT_MAX_GLOBAL` | No | Global email limit |
-| `EMAIL_RATE_LIMIT_ENABLED` | No | Disable email rate limiting when set to `false` |
 | `CLOUDINARY_CLOUD_NAME` | Yes for uploads | Cloudinary cloud name |
 | `CLOUDINARY_API_KEY` | Yes for uploads | Cloudinary API key |
 | `CLOUDINARY_API_SECRET` | Yes for uploads | Cloudinary API secret |
@@ -124,15 +106,11 @@ The app listens on `http://localhost:5000` by default unless `PORT` is set.
 
 | Method | Endpoint | Description |
 | --- | --- | --- |
-| `POST` | `/api/auth/register` | Create a new account and send a verification email |
+| `POST` | `/api/auth/register` | Create a verified account |
 | `POST` | `/api/auth/signup` | Alias for register |
 | `POST` | `/api/auth/login` | Authenticate a user and return a JWT session token |
 | `GET` | `/api/auth/me` | Return the current authenticated user |
-| `POST` | `/api/auth/verify` | Verify an email address with a 6-digit code |
-| `POST` | `/api/auth/verify-email` | Alias for verify |
-| `POST` | `/api/auth/resend-verification` | Resend the verification code |
-| `POST` | `/api/auth/forgot-password` | Send a password reset email |
-| `POST` | `/api/auth/reset-password` | Reset the password with a token/code payload |
+| `POST` | `/api/auth/forgot-password` | Reset a password after validating username and account email |
 
 ### Posts
 
@@ -174,8 +152,6 @@ The app listens on `http://localhost:5000` by default unless `PORT` is set.
 | `POST` | `/api/user/upload-profile-picture` | Alias for avatar upload |
 | `POST` | `/api/user/upload-cover-image` | Upload a cover image |
 | `POST` | `/api/user/preferences` | Update user preferences |
-| `POST` | `/api/user/reset-password` | Send a reset-password email from the user/settings flow |
-
 ### Settings
 
 | Method | Endpoint | Description |
@@ -197,13 +173,6 @@ The app listens on `http://localhost:5000` by default unless `PORT` is set.
 | --- | --- | --- |
 | `GET` | `/api/discovery` | Return trending hashtags, categories, recommended moments, and suggested creators |
 
-### Email Preview
-
-| Method | Endpoint | Description |
-| --- | --- | --- |
-| `GET` | `/dev/email-preview` | List available email templates |
-| `GET` | `/dev/email-preview/:template` | Render a template preview |
-
 ## Error Handling And Middleware
 
 - `middleware/auth.js` requires a `Bearer` token, verifies the JWT, and rejects inactive sessions.
@@ -214,8 +183,7 @@ The app listens on `http://localhost:5000` by default unless `PORT` is set.
 
 ## Deployment Notes
 
-- Set `MONGO_URI`, `JWT_SECRET`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, and all production Cloudinary values before starting the service.
-- On Render, set `NODE_ENV=production`, `CLIENT_APP_URL=https://glimpse-theta-swart.vercel.app`, `CLIENT_ORIGINS=https://glimpse-theta-swart.vercel.app`, and `CLIENT_RESET_PASSWORD_URL=https://glimpse-theta-swart.vercel.app/reset-password`.
-- On Render, remove all old mail-provider variables from the previous setup. Email delivery now uses Resend only.
+- Set `MONGO_URI`, `JWT_SECRET`, and all production Cloudinary values before starting the service.
+- On Render, set `NODE_ENV=production`, `CLIENT_APP_URL=https://glimpse-theta-swart.vercel.app`, and `CLIENT_ORIGINS=https://glimpse-theta-swart.vercel.app`.
 - Configure Vercel with `VITE_API_URL=https://glimpse-backend-tin1.onrender.com`.
 - The server uses an in-memory rate limiter and feed cache, so a multi-instance deployment should be placed behind sticky sessions or an external cache if you need consistent throttling and cache behavior.
