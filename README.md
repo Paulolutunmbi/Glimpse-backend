@@ -112,6 +112,8 @@ The app listens on `http://localhost:5000` by default unless `PORT` is set.
 | `GET` | `/api/auth/me` | Return the current authenticated user |
 | `POST` | `/api/auth/forgot-password` | Reset a password after validating username and account email |
 
+Forgot-password requests must include `username`, `email`, and `newPassword`. The backend looks up the username, confirms the submitted email belongs to that account, then saves the new password through the user model so bcrypt hashing is applied. This flow does not generate reset tokens, validate reset tokens, send verification emails, create reset links, or enforce reset-link expiry logic.
+
 ### Posts
 
 | Method | Endpoint | Description |
@@ -187,3 +189,10 @@ The app listens on `http://localhost:5000` by default unless `PORT` is set.
 - On Render, set `NODE_ENV=production`, `CLIENT_APP_URL=https://glimpse-theta-swart.vercel.app`, and `CLIENT_ORIGINS=https://glimpse-theta-swart.vercel.app`.
 - Configure Vercel with `VITE_API_URL=https://glimpse-backend-tin1.onrender.com`.
 - The server uses an in-memory rate limiter and feed cache, so a multi-instance deployment should be placed behind sticky sessions or an external cache if you need consistent throttling and cache behavior.
+
+## Migration Notes
+
+- Existing users keep their current hashed passwords until they use the direct forgot-password form.
+- Any previously issued reset links or reset tokens should be treated as invalid after this deploy because the forgot-password endpoint no longer consumes token fields.
+- Remove scheduled jobs, email templates, environment variables, and database indexes that were only used for reset-token generation, reset-link emails, or reset-link expiry in older deployments.
+- Support teams should tell users to reset with their username, registered email, and new password directly in the app.

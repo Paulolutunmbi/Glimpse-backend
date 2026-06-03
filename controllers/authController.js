@@ -262,10 +262,10 @@ const getMe = async (req, res) => {
 const forgotPassword = async (req, res) => {
   const ctx = createLogContext(req, 'forgotPassword');
   try {
-    const { username, email, newPassword, password } = req.body || {};
+    const { username, email, newPassword } = req.body || {};
     const normalizedEmail = normalizeEmail(email);
     const normalizedUsername = String(username || '').trim().toLowerCase();
-    const nextPassword = String(newPassword || password || '');
+    const nextPassword = String(newPassword || '');
 
     logInfo(ctx, 'Route hit', {
       ip: ctx.ip,
@@ -292,12 +292,9 @@ const forgotPassword = async (req, res) => {
       });
     }
 
-    const user = await User.findOne({
-      email: normalizedEmail,
-      username: normalizedUsername,
-    }).select('+password');
+    const user = await User.findOne({ username: normalizedUsername }).select('+password');
 
-    if (!user) {
+    if (!user || normalizeEmail(user.email) !== normalizedEmail) {
       return res.status(400).json({
         success: false,
         message: 'Account details could not be validated',
@@ -305,6 +302,9 @@ const forgotPassword = async (req, res) => {
     }
 
     user.password = nextPassword;
+    if (!user.settings) user.settings = {};
+    if (!user.settings.security) user.settings.security = {};
+    user.settings.security.activeSessions = [];
     await user.save({ validateBeforeSave: false });
 
     return res.status(200).json({
