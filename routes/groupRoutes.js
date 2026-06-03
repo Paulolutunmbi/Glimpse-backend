@@ -2,15 +2,16 @@ const express = require('express');
 const router = express.Router();
 const groupChatController = require('../controllers/groupChatController');
 const auth = require('../middleware/auth');
+const { uploadProfilePicture } = require('../middleware/upload');
 
 // All routes require authentication
 router.use(auth);
 
 // Group CRUD operations
-router.post('/', groupChatController.createGroupChat);
+router.post('/', uploadProfilePicture, groupChatController.createGroupChat);
 router.get('/', groupChatController.getGroupChats);
 router.get('/:groupId', groupChatController.getGroupChat);
-router.patch('/:groupId', groupChatController.updateGroupChat);
+router.patch('/:groupId', uploadProfilePicture, groupChatController.updateGroupChat);
 
 // Messages
 router.get('/:groupId/messages', groupChatController.getGroupMessages);

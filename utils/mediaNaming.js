@@ -15,7 +15,7 @@ const normalizeSlug = (value, fallback = 'media') => {
 };
 
 const normalizeMediaFilename = (filename, fallback = 'media') => {
-  const rawName = path.basename(String(filename || fallback));
+  const rawName = path.basename(String(filename || fallback).trim());
   const ext = path.extname(rawName).toLowerCase();
   const base = ext ? rawName.slice(0, -ext.length) : rawName;
   return `${normalizeSlug(base, fallback)}${ext}`;

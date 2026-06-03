@@ -125,7 +125,11 @@ const getRenamedAsset = async ({ publicId, url, resourceType }) => {
 const migratePosts = async () => {
   let changed = 0;
   const posts = await Post.find({
-    $or: [{ 'media.publicId': { $nin: ['', null] } }, { 'media.url': /\/upload\// }, { image: /\/upload\// }],
+    $or: [
+      { 'media.publicId': { $exists: true, $ne: '' } },
+      { 'media.url': /\/upload\// },
+      { image: /\/upload\// },
+    ],
   });
 
   for (const post of posts) {
@@ -169,8 +173,8 @@ const migrateUsers = async () => {
   let changed = 0;
   const users = await User.find({
     $or: [
-      { profilePicturePublicId: { $nin: ['', null] } },
-      { coverImagePublicId: { $nin: ['', null] } },
+      { profilePicturePublicId: { $exists: true, $ne: '' } },
+      { coverImagePublicId: { $exists: true, $ne: '' } },
       { profilePicture: /\/upload\// },
       { avatar: /\/upload\// },
       { coverImage: /\/upload\// },

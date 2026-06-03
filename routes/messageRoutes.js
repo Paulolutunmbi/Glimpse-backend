@@ -8,14 +8,15 @@ const {
   markConversationRead,
 } = require('../controllers/messageController');
 const groupChatController = require('../controllers/groupChatController');
+const { uploadProfilePicture } = require('../middleware/upload');
 
 const router = express.Router();
 
 // Group chat routes
-router.post('/groups', auth, groupChatController.createGroupChat);
+router.post('/groups', auth, uploadProfilePicture, groupChatController.createGroupChat);
 router.get('/groups', auth, groupChatController.getGroupChats);
 router.get('/groups/:groupId', auth, groupChatController.getGroupChat);
-router.patch('/groups/:groupId', auth, groupChatController.updateGroupChat);
+router.patch('/groups/:groupId', auth, uploadProfilePicture, groupChatController.updateGroupChat);
 
 // Group messages
 router.get('/groups/:groupId/messages', auth, groupChatController.getGroupMessages);

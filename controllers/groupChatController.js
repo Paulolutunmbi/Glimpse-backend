@@ -1,7 +1,10 @@
+const mongoose = require('mongoose');
 const GroupChat = require('../models/GroupChat');
 const GroupMessage = require('../models/GroupMessage');
 const User = require('../models/User');
 const { getIO } = require('../socket');
+const { uploadBuffer } = require('../config/cloudinary');
+const { buildUploadPublicId } = require('../utils/mediaNaming');
 
 const hasMember = (members = [], userId) =>
   members.some((memberId) => String(memberId) === String(userId));
@@ -9,10 +12,32 @@ const hasMember = (members = [], userId) =>
 const hasAdmin = (admins = [], userId) =>
   admins.some((adminId) => String(adminId) === String(userId));
 
+const pickGroupImageFile = (req) => req.files?.image?.[0] || req.files?.avatar?.[0] || null;
+
+const uploadGroupImage = async ({ file, groupId, userId }) => {
+  if (!file) return '';
+
+  const result = await uploadBuffer({
+    buffer: file.buffer,
+    folder: 'glimpse/group-images',
+    publicId: buildUploadPublicId({
+      prefix: 'group',
+      postId: groupId,
+      userId,
+      originalname: file.originalname,
+    }),
+    resourceType: 'image',
+    transformation: [{ width: 512, height: 512, crop: 'fill' }, { quality: 'auto', fetch_format: 'auto' }],
+  });
+
+  return result.secure_url;
+};
+
 exports.createGroupChat = async (req, res) => {
   try {
     const { name, memberIds = [], description, image } = req.body;
     const userId = req.userId;
+    const groupId = new mongoose.Types.ObjectId();
 
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Group name is required' });
@@ -23,10 +48,17 @@ exports.createGroupChat = async (req, res) => {
       (id, index, arr) => arr.indexOf(id) === index
     );
 
+    const uploadedImage = await uploadGroupImage({
+      file: pickGroupImageFile(req),
+      groupId,
+      userId,
+    });
+
     const group = new GroupChat({
+      _id: groupId,
       name: name.trim(),
       description: description?.trim(),
-      image,
+      image: uploadedImage || image,
       admin: userId,
       admins: [userId],
       members: allMemberIds,
@@ -99,9 +131,15 @@ exports.updateGroupChat = async (req, res) => {
       return res.status(403).json({ error: 'Only admins can update group' });
     }
 
+    const uploadedImage = await uploadGroupImage({
+      file: pickGroupImageFile(req),
+      groupId,
+      userId,
+    });
+
     if (name) group.name = name.trim();
     if (description !== undefined) group.description = description.trim();
-    if (image !== undefined) group.image = image;
+    if (uploadedImage || image !== undefined) group.image = uploadedImage || image;
 
     await group.save();
     await group.populate('admin members admins', 'username profile avatar verified');
