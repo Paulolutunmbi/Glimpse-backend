@@ -5,6 +5,7 @@ const {
   ALLOWED_IMAGE_MIME_TYPES,
   ALLOWED_VIDEO_MIME_TYPES,
 } = require('../middleware/upload');
+const { buildUploadPublicId } = require('../utils/mediaNaming');
 const fs = require('fs');
 
 const IMAGE_FOLDER = 'glimpse/moments/images';
@@ -107,12 +108,20 @@ const uploadMediaFile = async ({ file, folder, publicId }) => {
 
 const uploadPostMedia = async (files = [], { postId, userId } = {}) => {
   if (!Array.isArray(files) || files.length === 0) return [];
+  const timestamp = Date.now();
 
   const uploads = files.map((file, index) =>
     uploadMediaFile({
       file,
       folder: ALLOWED_VIDEO_MIME_TYPES.includes(file.mimetype) ? VIDEO_FOLDER : IMAGE_FOLDER,
-      publicId: `post-${postId || 'draft'}-${userId || 'unknown'}-${Date.now()}-${index}`,
+      publicId: buildUploadPublicId({
+        prefix: 'post',
+        postId: postId || 'draft',
+        userId: userId || 'unknown',
+        index,
+        originalname: file.originalname,
+        timestamp,
+      }),
     })
   );
 

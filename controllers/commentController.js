@@ -27,7 +27,7 @@ const serializeComment = (comment, viewerId) => {
   const isOwner = String(payload?.userId || '') === String(viewerId || '');
   return {
     ...payload,
-    verified: payload?.verified ?? true,
+    verified: Boolean(payload?.verified),
     isEdited: Boolean(payload?.isEdited),
     canEdit: isOwner ? canMutateComment(payload, 'edit') : false,
     canDelete: isOwner ? canMutateComment(payload, 'delete') : false,
@@ -72,13 +72,17 @@ const createComment = async (req, res) => {
       userId: String(req.userId),
       username: user.username,
       avatar: user.profilePicture || user.avatar || '',
-      verified: user.verified ?? user.isVerified ?? true,
+      verified: Boolean(user.verified),
       text: trimmedText,
       editWindowUntil: addMinutes(new Date(), EDIT_WINDOW_MINUTES),
       deleteWindowUntil: addMinutes(new Date(), DELETE_WINDOW_MINUTES),
     });
 
     await comment.save();
+    const serializedComment = {
+      ...serializeComment(comment, req.userId),
+      clientId: req.body?.clientId || undefined,
+    };
     const updatedPost = await Post.findByIdAndUpdate(
       postId,
       { $inc: { comments: 1 } },
@@ -99,7 +103,7 @@ const createComment = async (req, res) => {
     try {
       const io = getIO();
       io.to(String(postId)).emit('comment:created', {
-        comment: serializeComment(comment, req.userId),
+        comment: serializedComment,
         postId: String(postId),
         commentsCount,
       });
@@ -107,7 +111,7 @@ const createComment = async (req, res) => {
       console.error('Socket emit failed:', err.message);
     }
     return res.status(201).json({
-      comment: serializeComment(comment, req.userId),
+      comment: serializedComment,
       commentsCount,
     });
   } catch (err) {

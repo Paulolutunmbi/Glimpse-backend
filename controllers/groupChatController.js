@@ -1,6 +1,13 @@
 const GroupChat = require('../models/GroupChat');
 const GroupMessage = require('../models/GroupMessage');
 const User = require('../models/User');
+const { getIO } = require('../socket');
+
+const hasMember = (members = [], userId) =>
+  members.some((memberId) => String(memberId) === String(userId));
+
+const hasAdmin = (admins = [], userId) =>
+  admins.some((adminId) => String(adminId) === String(userId));
 
 exports.createGroupChat = async (req, res) => {
   try {
@@ -64,7 +71,7 @@ exports.getGroupChat = async (req, res) => {
     }
 
     // Check if user is member
-    if (!group.members.includes(userId)) {
+    if (!hasMember(group.members, userId)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -88,7 +95,7 @@ exports.updateGroupChat = async (req, res) => {
     }
 
     // Only admin can update
-    if (String(group.admin) !== String(userId) && !group.admins.includes(userId)) {
+    if (String(group.admin) !== String(userId) && !hasAdmin(group.admins, userId)) {
       return res.status(403).json({ error: 'Only admins can update group' });
     }
 
@@ -118,7 +125,7 @@ exports.getGroupMessages = async (req, res) => {
       return res.status(404).json({ error: 'Group not found' });
     }
 
-    if (!group.members.includes(userId)) {
+    if (!hasMember(group.members, userId)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -165,7 +172,7 @@ exports.sendGroupMessage = async (req, res) => {
       return res.status(404).json({ error: 'Group not found' });
     }
 
-    if (!group.members.includes(userId)) {
+    if (!hasMember(group.members, userId)) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -185,12 +192,14 @@ exports.sendGroupMessage = async (req, res) => {
     await group.save();
 
     // Broadcast to socket
-    const io = req.app.get('io');
-    if (io) {
+    try {
+      const io = getIO();
       io.to(`group:${groupId}`).emit('message:created', {
         message,
         groupId,
       });
+    } catch (err) {
+      console.error('Socket emit failed:', err.message);
     }
 
     res.status(201).json({ message: 'Message sent', data: message });
@@ -214,7 +223,7 @@ exports.deleteGroupMessage = async (req, res) => {
     // Only sender or admin can delete
     if (String(message.sender) !== String(userId)) {
       const group = await GroupChat.findById(groupId);
-      if (!group || (String(group.admin) !== String(userId) && !group.admins.includes(userId))) {
+      if (!group || (String(group.admin) !== String(userId) && !hasAdmin(group.admins, userId))) {
         return res.status(403).json({ error: 'Access denied' });
       }
     }
@@ -223,12 +232,14 @@ exports.deleteGroupMessage = async (req, res) => {
     await message.save();
 
     // Broadcast to socket
-    const io = req.app.get('io');
-    if (io) {
+    try {
+      const io = getIO();
       io.to(`group:${groupId}`).emit('message:deleted', {
         messageId,
         groupId,
       });
+    } catch (err) {
+      console.error('Socket emit failed:', err.message);
     }
 
     res.json({ message: 'Message deleted' });
@@ -251,11 +262,11 @@ exports.addGroupMember = async (req, res) => {
     }
 
     // Only admin can add members
-    if (String(group.admin) !== String(userId) && !group.admins.includes(userId)) {
+    if (String(group.admin) !== String(userId) && !hasAdmin(group.admins, userId)) {
       return res.status(403).json({ error: 'Only admins can add members' });
     }
 
-    if (group.members.includes(memberId)) {
+    if (hasMember(group.members, memberId)) {
       return res.status(400).json({ error: 'User already in group' });
     }
 
@@ -264,13 +275,15 @@ exports.addGroupMember = async (req, res) => {
     await group.populate('admin members admins', 'username profile avatar verified');
 
     // Broadcast to socket
-    const io = req.app.get('io');
-    if (io) {
+    try {
+      const io = getIO();
       io.to(`group:${groupId}`).emit('group:memberAdded', {
         groupId,
         memberId,
         group,
       });
+    } catch (err) {
+      console.error('Socket emit failed:', err.message);
     }
 
     res.json({ message: 'Member added', data: group });
@@ -292,7 +305,7 @@ exports.removeGroupMember = async (req, res) => {
     }
 
     // Only admin can remove members
-    if (String(group.admin) !== String(userId) && !group.admins.includes(userId)) {
+    if (String(group.admin) !== String(userId) && !hasAdmin(group.admins, userId)) {
       return res.status(403).json({ error: 'Only admins can remove members' });
     }
 
@@ -302,13 +315,15 @@ exports.removeGroupMember = async (req, res) => {
     await group.populate('admin members admins', 'username profile avatar verified');
 
     // Broadcast to socket
-    const io = req.app.get('io');
-    if (io) {
+    try {
+      const io = getIO();
       io.to(`group:${groupId}`).emit('group:memberRemoved', {
         groupId,
         memberId,
         group,
       });
+    } catch (err) {
+      console.error('Socket emit failed:', err.message);
     }
 
     res.json({ message: 'Member removed', data: group });
@@ -342,12 +357,14 @@ exports.leaveGroupChat = async (req, res) => {
     await group.populate('admin members admins', 'username profile avatar');
 
     // Broadcast to socket
-    const io = req.app.get('io');
-    if (io) {
+    try {
+      const io = getIO();
       io.to(`group:${groupId}`).emit('group:memberLeft', {
         groupId,
         userId,
       });
+    } catch (err) {
+      console.error('Socket emit failed:', err.message);
     }
 
     res.json({ message: 'Left group' });
@@ -373,7 +390,7 @@ exports.promoteToAdmin = async (req, res) => {
       return res.status(403).json({ error: 'Only group owner can promote members' });
     }
 
-    if (!group.admins.includes(memberId)) {
+    if (!hasAdmin(group.admins, memberId)) {
       group.admins.push(memberId);
       await group.save();
     }
@@ -381,12 +398,14 @@ exports.promoteToAdmin = async (req, res) => {
     await group.populate('admin members admins', 'username profile avatar');
 
     // Broadcast to socket
-    const io = req.app.get('io');
-    if (io) {
+    try {
+      const io = getIO();
       io.to(`group:${groupId}`).emit('group:memberPromoted', {
         groupId,
         memberId,
       });
+    } catch (err) {
+      console.error('Socket emit failed:', err.message);
     }
 
     res.json({ message: 'Member promoted', data: group });
@@ -417,12 +436,14 @@ exports.demoteFromAdmin = async (req, res) => {
     await group.populate('admin members admins', 'username profile avatar');
 
     // Broadcast to socket
-    const io = req.app.get('io');
-    if (io) {
+    try {
+      const io = getIO();
       io.to(`group:${groupId}`).emit('group:memberDemoted', {
         groupId,
         memberId,
       });
+    } catch (err) {
+      console.error('Socket emit failed:', err.message);
     }
 
     res.json({ message: 'Member demoted', data: group });

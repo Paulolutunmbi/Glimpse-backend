@@ -6,7 +6,7 @@ const buildActorSnapshot = (actor) => ({
   name: actor?.name || actor?.fullName || '',
   username: actor?.username || '',
   avatar: actor?.profile?.avatar || actor?.profilePicture || actor?.avatar || '',
-  verified: actor?.verified ?? actor?.isVerified ?? true,
+  verified: Boolean(actor?.verified),
 });
 
 const buildSystemSnapshot = () => ({

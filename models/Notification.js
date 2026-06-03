@@ -16,7 +16,7 @@ const notificationSchema = new mongoose.Schema(
       name: { type: String, default: '' },
       username: { type: String, default: '' },
       avatar: { type: String, default: '' },
-      verified: { type: Boolean, default: true },
+      verified: { type: Boolean, default: false },
     },
     preview: { type: String, default: '' },
     isRead: { type: Boolean, default: false },

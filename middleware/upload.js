@@ -2,6 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const multer = require('multer');
+const { normalizeMediaFilename } = require('../utils/mediaNaming');
 
 const MAX_PROFILE_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_POST_MEDIA_BYTES = 50 * 1024 * 1024;
@@ -25,8 +26,8 @@ const memoryStorage = multer.memoryStorage();
 const diskStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, TEMP_UPLOAD_DIR),
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname) || '';
-    const name = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}${ext}`;
+    const normalizedName = normalizeMediaFilename(file.originalname);
+    const name = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}-${normalizedName}`;
     cb(null, name);
   },
 });
@@ -142,4 +143,5 @@ module.exports = {
   MAX_POST_IMAGE_BYTES,
   ALLOWED_IMAGE_MIME_TYPES,
   ALLOWED_VIDEO_MIME_TYPES,
+  normalizeMediaFilename,
 };

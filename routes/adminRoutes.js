@@ -7,6 +7,7 @@ const {
   listUsers,
   getUserDetails,
   getAnalytics,
+  setUserVerification,
   banUser,
   unbanUser,
   deleteUser,
@@ -19,6 +20,7 @@ router.get('/verify', auth, requireAdmin, verifyAdmin);
 router.get('/analytics', auth, requireAdmin, adminLimiter, getAnalytics);
 router.get('/users', auth, requireAdmin, adminLimiter, listUsers);
 router.get('/users/:id', auth, requireAdmin, adminLimiter, getUserDetails);
+router.patch('/users/:id/verification', auth, requireAdmin, adminLimiter, setUserVerification);
 router.post('/users/:id/ban', auth, requireAdmin, adminLimiter, banUser);
 router.post('/users/:id/unban', auth, requireAdmin, adminLimiter, unbanUser);
 router.delete('/users/:id', auth, requireAdmin, adminLimiter, deleteUser);

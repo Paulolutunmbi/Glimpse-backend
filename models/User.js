@@ -111,7 +111,7 @@ const userSchema = new mongoose.Schema(
     isFirstLogin: { type: Boolean, default: true },
     profileCompleted: { type: Boolean, default: false },
     onboardingCompleted: { type: Boolean, default: false },
-    verified: { type: Boolean, default: true },
+    verified: { type: Boolean, default: false },
     isBanned: { type: Boolean, default: false },
     bannedAt: { type: Date },
     banReason: { type: String, default: '' },

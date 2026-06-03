@@ -6,7 +6,7 @@ const commentSchema = new mongoose.Schema(
     userId: { type: String, default: 'guest' },
     username: { type: String, default: 'Guest' },
     avatar: { type: String, default: '' },
-    verified: { type: Boolean, default: true },
+    verified: { type: Boolean, default: false },
     text: { type: String, required: true, trim: true },
     parentCommentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Comment', default: null },
     isEdited: { type: Boolean, default: false },

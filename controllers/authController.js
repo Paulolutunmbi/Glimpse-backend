@@ -31,7 +31,7 @@ const sanitizeUser = (user) => {
     isFirstLogin: user.isFirstLogin,
     profileCompleted: user.profileCompleted,
     onboardingCompleted: user.onboardingCompleted,
-    verified: user.verified ?? user.isVerified ?? true,
+    verified: Boolean(user.verified),
     isBanned: Boolean(user.isBanned),
     isAdmin: isAdminEmail(user.email),
     createdAt: user.createdAt,
@@ -167,7 +167,7 @@ const register = async (req, res) => {
       username: displayName,
       email: normalizedEmail,
       password,
-      verified: true,
+      verified: false,
     });
     await user.save({ validateBeforeSave: false });
 

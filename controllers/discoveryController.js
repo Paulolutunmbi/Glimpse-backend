@@ -4,6 +4,15 @@ const User = require('../models/User');
 const getDiscovery = async (req, res) => {
   try {
     const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const currentUser = req.userId
+      ? await User.findById(req.userId).select('relations.following following')
+      : null;
+    const followingIds = new Set(
+      (currentUser?.relations?.following?.length
+        ? currentUser.relations.following
+        : currentUser?.following || []
+      ).map(String)
+    );
 
     const [trendingHashtags, exploreCategories, recommendedMoments, suggestedCreators] =
       await Promise.all([
@@ -42,20 +51,27 @@ const getDiscovery = async (req, res) => {
         Post.find({ visibility: 'public' })
           .sort({ trendingScore: -1, createdAt: -1 })
           .limit(6),
-        User.find({ 'stats.postsCount': { $gt: 0 } })
+        User.find({
+          'stats.postsCount': { $gt: 0 },
+          ...(req.userId
+            ? { _id: { $nin: [req.userId, ...Array.from(followingIds)] } }
+            : {}),
+        })
           .sort({ 'stats.followersCount': -1 })
-          .limit(6)
+          .limit(10)
           .select('username name profile avatar profilePicture stats'),
       ]);
 
     const filteredCreators = suggestedCreators
       .filter((creator) => String(creator._id) !== String(req.userId))
+      .filter((creator) => !followingIds.has(String(creator._id)))
       .map((creator) => ({
         id: creator._id,
         username: creator.username,
         name: creator.name,
         avatar: creator.profile?.avatar || creator.profilePicture || creator.avatar || '',
         followersCount: creator.stats?.followersCount ?? 0,
+        isFollowing: false,
       }));
 
     return res.status(200).json({

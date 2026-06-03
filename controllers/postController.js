@@ -66,14 +66,30 @@ const updateTrendingScore = async (post) => {
   return nextScore;
 };
 
-const parseCursor = (cursor) => {
+const parseCursor = (cursor, mode = 'latest') => {
   if (!cursor) return null;
   const parts = String(cursor).split('|');
+  if (mode === 'trending') {
+    if (parts.length < 3) return null;
+    const createdAt = new Date(parts[1]);
+    if (Number.isNaN(createdAt.getTime()) || !mongoose.Types.ObjectId.isValid(parts[2])) {
+      return null;
+    }
+    return {
+      score: Number(parts[0]) || 0,
+      createdAt,
+      id: parts[2],
+    };
+  }
+
   if (parts.length < 2) return null;
+  const createdAt = new Date(parts[0]);
+  if (Number.isNaN(createdAt.getTime()) || !mongoose.Types.ObjectId.isValid(parts[1])) {
+    return null;
+  }
   return {
-    score: Number(parts[0]),
-    createdAt: new Date(parts[1]),
-    id: parts[2],
+    createdAt,
+    id: parts[1],
   };
 };
 
@@ -86,7 +102,7 @@ const buildCursor = (post, mode = 'latest') => {
 };
 
 const buildCursorQuery = (cursorData, mode = 'latest') => {
-  if (!cursorData?.createdAt) return {};
+  if (!cursorData?.createdAt || !cursorData?.id) return {};
 
   if (mode === 'trending') {
     return {
@@ -113,22 +129,23 @@ const buildCursorQuery = (cursorData, mode = 'latest') => {
   };
 };
 
-const feedCache = new Map();
-const getCacheKey = (type, cursor, limit, userId) =>
-  `${type}:${cursor || 'start'}:${limit}:${userId || 'anon'}`;
+const mergeFeedQuery = (...parts) => {
+  const query = {};
+  const andConditions = [];
 
-const setFeedCache = (key, value, ttlMs = 30 * 1000) => {
-  feedCache.set(key, { value, expiresAt: Date.now() + ttlMs });
-};
+  parts.forEach((part) => {
+    if (!part || Object.keys(part).length === 0) return;
+    const { $or, $and, ...rest } = part;
+    Object.assign(query, rest);
+    if ($or) andConditions.push({ $or });
+    if (Array.isArray($and)) andConditions.push(...$and);
+  });
 
-const getFeedCache = (key) => {
-  const entry = feedCache.get(key);
-  if (!entry) return null;
-  if (Date.now() > entry.expiresAt) {
-    feedCache.delete(key);
-    return null;
+  if (andConditions.length) {
+    query.$and = andConditions;
   }
-  return entry.value;
+
+  return query;
 };
 
 const buildAuthorSnapshot = (author) => ({
@@ -136,7 +153,7 @@ const buildAuthorSnapshot = (author) => ({
   name: author?.fullName || author?.name || '',
   avatar: author?.profile?.avatar || author?.profilePicture || author?.avatar || '',
   location: author?.extraInfo || '',
-  verified: author?.verified ?? author?.isVerified ?? true,
+  verified: Boolean(author?.verified),
 });
 
 const applyPostBodyUpdates = (post, body = {}) => {
@@ -418,16 +435,13 @@ const getPosts = async (req, res) => {
 // GET /api/posts/feed
 const getFeed = async (req, res) => {
   try {
-    const type = String(req.query.type || 'latest');
+    const requestedType = String(req.query.type || 'latest');
+    const allowedTypes = new Set(['latest', 'following', 'personalized', 'trending', 'explore', 'reels']);
+    const type = allowedTypes.has(requestedType) ? requestedType : 'latest';
     const limit = Math.min(Number(req.query.limit) || DEFAULT_LIMIT, MAX_LIMIT);
-    const cursorData = parseCursor(req.query.cursor);
+    const sortMode = type === 'trending' || type === 'explore' ? 'trending' : 'latest';
+    const cursorData = parseCursor(req.query.cursor, sortMode);
     const userId = req.userId;
-
-    const cacheKey = getCacheKey(type, req.query.cursor, limit, userId);
-    if (['trending', 'explore'].includes(type)) {
-      const cached = getFeedCache(cacheKey);
-      if (cached) return res.status(200).json(cached);
-    }
 
     const baseQuery = {};
     let sort = { createdAt: -1, _id: -1 };
@@ -441,16 +455,6 @@ const getFeed = async (req, res) => {
       const { following, mutual } = await getViewerRelations(userId);
       const followingIds = [...new Set([...following, String(userId)])];
       baseQuery.author = { $in: followingIds };
-      baseQuery.$and = [
-        {
-          $or: [
-            { visibility: 'public' },
-            { visibility: 'followers' },
-            { visibility: 'friends', author: { $in: mutual } },
-            { visibility: 'private', author: String(userId) },
-          ],
-        },
-      ];
 
     }
 
@@ -461,7 +465,11 @@ const getFeed = async (req, res) => {
         ? user.profile.preferences
         : user?.preferences || [];
       if (preferences.length) {
-        baseQuery.tags = { $in: preferences };
+        baseQuery.$or = [
+          { tags: { $in: preferences } },
+          { hashtags: { $in: preferences } },
+          { category: { $in: preferences } },
+        ];
       }
     }
 
@@ -470,24 +478,19 @@ const getFeed = async (req, res) => {
     }
 
     const visibilityQuery = await buildVisibilityQuery(userId);
-    const cursorQuery = buildCursorQuery(
-      cursorData,
-      type === 'trending' || type === 'explore' ? 'trending' : 'latest'
-    );
-    const posts = await Post.find({ ...baseQuery, ...visibilityQuery, ...cursorQuery })
+    const cursorQuery = buildCursorQuery(cursorData, sortMode);
+    const query = mergeFeedQuery(baseQuery, visibilityQuery, cursorQuery);
+    const posts = await Post.find(query)
       .sort(sort)
       .limit(limit + 1);
 
     const hasMore = posts.length > limit;
     const sliced = hasMore ? posts.slice(0, limit) : posts;
     const nextCursor = hasMore
-      ? buildCursor(sliced[sliced.length - 1], type === 'trending' || type === 'explore' ? 'trending' : 'latest')
+      ? buildCursor(sliced[sliced.length - 1], sortMode)
       : null;
 
     const payload = { data: sliced, nextCursor, hasMore };
-    if (['trending', 'explore'].includes(type)) {
-      setFeedCache(cacheKey, payload);
-    }
 
     return res.status(200).json(payload);
   } catch (err) {
@@ -516,7 +519,19 @@ const createPost = async (req, res) => {
       mentions,
       visibility,
       repostOf,
+      clientRequestId,
     } = req.body || {};
+    const normalizedClientRequestId = String(clientRequestId || '').trim();
+
+    if (normalizedClientRequestId) {
+      const existingPost = await Post.findOne({
+        author: author._id,
+        clientRequestId: normalizedClientRequestId,
+      });
+      if (existingPost) {
+        return res.status(200).json(existingPost);
+      }
+    }
 
     const allowedVisibility = ['public', 'followers', 'friends', 'private'];
     if (visibility && !allowedVisibility.includes(visibility)) {
@@ -566,7 +581,7 @@ const createPost = async (req, res) => {
         name: author.fullName || author.name || '',
         avatar: author.profile?.avatar || author.profilePicture || author.avatar || '',
         location: author.extraInfo || '',
-        verified: author.verified ?? author.isVerified ?? true,
+        verified: Boolean(author.verified),
       },
       visibility: visibility || 'public',
       title: title || '',
@@ -579,6 +594,7 @@ const createPost = async (req, res) => {
       media: uploadedMedia.length ? uploadedMedia : fallbackMedia,
       image: uploadedMedia.length ? uploadedMedia[0]?.url : image || '',
       repostOf: repostOf || undefined,
+      clientRequestId: normalizedClientRequestId,
     });
 
     await post.save();
@@ -613,6 +629,15 @@ const createPost = async (req, res) => {
 
     return res.status(201).json(post);
   } catch (err) {
+    if (err?.code === 11000 && req.body?.clientRequestId) {
+      const existingPost = await Post.findOne({
+        author: author._id,
+        clientRequestId: String(req.body.clientRequestId).trim(),
+      });
+      if (existingPost) {
+        return res.status(200).json(existingPost);
+      }
+    }
     if (uploadedMedia.length) {
       const publicIds = uploadedMedia.map((item) => item.publicId).filter(Boolean);
       try {
@@ -708,7 +733,12 @@ const sharePost = async (req, res) => {
     if (!post) return res.status(404).json({ error: 'Post not found' });
 
     await updateTrendingScore(post);
-    return res.status(200).json({ success: true, shareCount: post.shareCount });
+    return res.status(200).json({
+      success: true,
+      shareCount: post.shareCount,
+      shareUrl: post.shareUrl,
+      sharePath: post.sharePath,
+    });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to share post', details: err.message });
   }

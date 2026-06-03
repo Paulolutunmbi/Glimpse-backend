@@ -6,6 +6,7 @@ const Post = require('../models/Post');
 const { createNotification } = require('../services/notificationService');
 const { buildVisibilityQuery } = require('../utils/visibility');
 const { isAdminEmail } = require('../utils/admin');
+const { buildUploadPublicId } = require('../utils/mediaNaming');
 const createLogContext = (req, flow) => ({
   flow,
   id: crypto.randomBytes(6).toString('hex'),
@@ -106,7 +107,7 @@ const sanitizeUser = (user) => {
     isFirstLogin: user.isFirstLogin,
     profileCompleted: user.profileCompleted,
     onboardingCompleted: user.onboardingCompleted,
-    verified: user.verified ?? user.isVerified ?? true,
+    verified: Boolean(user.verified),
     isBanned: Boolean(user.isBanned),
     isAdmin: isAdminEmail(user.email),
     createdAt: user.createdAt,
@@ -470,7 +471,11 @@ const uploadAvatar = async (req, res) => {
       const uploadResult = await uploadImageBufferToCloudinary({
         buffer: file.buffer,
         folder: 'glimpse/profile-images',
-        publicId: `user-${req.userId}-${Date.now()}`,
+        publicId: buildUploadPublicId({
+          prefix: 'user',
+          userId: req.userId,
+          originalname: file.originalname,
+        }),
         transformation: [{ width: 512, height: 512, crop: 'fill', gravity: 'face' }],
       });
       finalUrl = uploadResult.url;
@@ -484,7 +489,7 @@ const uploadAvatar = async (req, res) => {
       const uploadResult = await uploadDataUriToCloudinary({
         dataUri: payload.trim(),
         folder: 'glimpse/profile-images',
-        publicId: `user-${req.userId}-${Date.now()}`,
+        publicId: buildUploadPublicId({ prefix: 'user', userId: req.userId, originalname: 'avatar.jpg' }),
         transformation: [{ width: 512, height: 512, crop: 'fill', gravity: 'face' }],
       });
       finalUrl = uploadResult.url;
@@ -557,7 +562,11 @@ const uploadCoverImage = async (req, res) => {
       const uploadResult = await uploadImageBufferToCloudinary({
         buffer: file.buffer,
         folder: 'glimpse/cover-images',
-        publicId: `cover-${req.userId}-${Date.now()}`,
+        publicId: buildUploadPublicId({
+          prefix: 'cover',
+          userId: req.userId,
+          originalname: file.originalname,
+        }),
         transformation: [{ width: 1600, height: 900, crop: 'fill' }],
       });
       finalUrl = uploadResult.url;
@@ -571,7 +580,7 @@ const uploadCoverImage = async (req, res) => {
       const uploadResult = await uploadDataUriToCloudinary({
         dataUri: payload.trim(),
         folder: 'glimpse/cover-images',
-        publicId: `cover-${req.userId}-${Date.now()}`,
+        publicId: buildUploadPublicId({ prefix: 'cover', userId: req.userId, originalname: 'cover-image.jpg' }),
         transformation: [{ width: 1600, height: 900, crop: 'fill' }],
       });
       finalUrl = uploadResult.url;

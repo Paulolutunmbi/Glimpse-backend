@@ -31,7 +31,7 @@ const postSchema = new mongoose.Schema(
       name: { type: String, default: '' },
       avatar: { type: String, default: '' },
       location: { type: String, default: '' },
-      verified: { type: Boolean, default: true },
+      verified: { type: Boolean, default: false },
     },
     type: {
       type: String,
@@ -66,6 +66,7 @@ const postSchema = new mongoose.Schema(
     repostCount: { type: Number, default: 0 },
     repostedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     savedBy: { type: [String], default: [] },
+    clientRequestId: { type: String, default: '' },
   },
   { timestamps: true }
 );
@@ -89,6 +90,13 @@ postSchema.index({ visibility: 1, createdAt: -1 });
 postSchema.index({ trendingScore: -1, scoreUpdatedAt: -1 });
 postSchema.index({ repostOf: 1, createdAt: -1 });
 postSchema.index({ 'user.username': 1, createdAt: -1 });
+postSchema.index(
+  { author: 1, clientRequestId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { clientRequestId: { $type: 'string', $gt: '' } },
+  }
+);
 
 postSchema.pre('validate', function () {
   if (!this.image && this.media?.length) {

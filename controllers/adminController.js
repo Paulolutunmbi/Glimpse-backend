@@ -22,6 +22,7 @@ const buildUserSummary = (user) => {
     username: user.username,
     email: user.email,
     createdAt: user.createdAt,
+    verified: Boolean(user.verified),
     isBanned: Boolean(user.isBanned),
     banReason: user.banReason || '',
     bannedAt: user.bannedAt || null,
@@ -52,6 +53,8 @@ const buildUserSummary = (user) => {
       canBan: !isAdminEmail(user.email) && !user.isBanned,
       canUnban: !isAdminEmail(user.email) && Boolean(user.isBanned),
       canDelete: !isAdminEmail(user.email),
+      canVerify: !user.verified,
+      canRemoveVerification: Boolean(user.verified),
     },
     lastActiveAt: lastActiveAt || null,
     stats: user.stats || {},
@@ -108,7 +111,7 @@ const listUsers = async (req, res) => {
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
-      .select('name fullName username email createdAt isBanned banReason bannedAt stats adminAccess settings violations profile avatar profilePicture followers following relations')
+      .select('name fullName username email createdAt verified isBanned banReason bannedAt stats adminAccess settings violations profile avatar profilePicture followers following relations')
       .lean();
 
     const data = users.map(buildUserSummary);
@@ -131,7 +134,7 @@ const listUsers = async (req, res) => {
 const getUserDetails = async (req, res) => {
   try {
     const user = await User.findById(req.params.id)
-      .select('name fullName username email createdAt isBanned banReason bannedAt stats adminAccess settings violations profile avatar profilePicture followers following relations')
+      .select('name fullName username email createdAt verified isBanned banReason bannedAt stats adminAccess settings violations profile avatar profilePicture followers following relations')
       .lean();
 
     if (!user) {
@@ -298,6 +301,35 @@ const unbanUser = async (req, res) => {
   }
 };
 
+const setUserVerification = async (req, res) => {
+  try {
+    const { verified } = req.body || {};
+    if (typeof verified !== 'boolean') {
+      return res.status(400).json({ success: false, message: 'verified must be a boolean' });
+    }
+
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    user.verified = verified;
+    await user.save({ validateBeforeSave: false });
+
+    await Promise.all([
+      Post.updateMany({ author: user._id }, { $set: { 'user.verified': verified } }),
+      Comment.updateMany({ userId: String(user._id) }, { $set: { verified } }),
+      Notification.updateMany({ actor: user._id }, { $set: { 'actorSnapshot.verified': verified } }),
+    ]);
+
+    emitAdminStateChange('admin:userUpdated', { user: buildUserSummary(user) });
+
+    return res.status(200).json({ success: true, data: buildUserSummary(user) });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Failed to update verification' });
+  }
+};
+
 const deleteUser = async (req, res) => {
   try {
     const user = await User.findById(req.params.id)
@@ -401,6 +433,7 @@ module.exports = {
   listUsers,
   getUserDetails,
   getAnalytics,
+  setUserVerification,
   banUser,
   unbanUser,
   deleteUser,

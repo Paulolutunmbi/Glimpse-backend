@@ -20,7 +20,7 @@ const { uploadPostMedia } = require('../middleware/upload');
 
 router.get('/', getPosts);
 router.get('/feed', auth, getFeed);
-router.get('/:id', getPostById);
+router.get('/:id', auth, getPostById);
 router.post('/', auth, uploadPostMedia, createPost);
 router.patch('/:id', auth, uploadPostMedia, updatePost);
 router.put('/:id/like', auth, toggleLike);
