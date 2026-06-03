@@ -14,7 +14,13 @@ const renameCache = new Map();
 const parseCloudinaryUrl = (url) => {
   if (!url || !String(url).includes('/upload/')) return null;
 
-  const parsed = new URL(url);
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch (err) {
+    return null;
+  }
+
   const parts = parsed.pathname.split('/upload/');
   if (parts.length < 2) return null;
 
@@ -30,6 +36,17 @@ const parseCloudinaryUrl = (url) => {
 };
 
 const buildUrlFromResult = (result, fallbackUrl) => result?.secure_url || result?.url || fallbackUrl;
+
+const buildAssetUrl = ({ publicId, resourceType, fallbackUrl }) => {
+  const parsed = parseCloudinaryUrl(fallbackUrl);
+  const format = parsed?.extension || undefined;
+  const cloudinary = getCloudinary();
+  return cloudinary.url(publicId, {
+    resource_type: resourceType,
+    secure: true,
+    ...(format ? { format } : {}),
+  });
+};
 
 const buildThumbnailUrl = (publicId) => {
   const cloudinary = getCloudinary();
@@ -63,8 +80,14 @@ const getRenamedAsset = async ({ publicId, url, resourceType }) => {
   }
 
   if (dryRun) {
-    const planned = { publicId: targetPublicId, url, changed: true, dryRun: true };
+    const planned = {
+      publicId: targetPublicId,
+      url: buildAssetUrl({ publicId: targetPublicId, resourceType, fallbackUrl: url }),
+      changed: true,
+      dryRun: true,
+    };
     renameCache.set(sourcePublicId, planned);
+    console.log(`[dry-run] ${resourceType} ${sourcePublicId} -> ${targetPublicId}`);
     return planned;
   }
 
@@ -95,6 +118,7 @@ const getRenamedAsset = async ({ publicId, url, resourceType }) => {
     changed: true,
   };
   renameCache.set(sourcePublicId, renamed);
+  console.log(`[renamed] ${resourceType} ${sourcePublicId} -> ${renamed.publicId}`);
   return renamed;
 };
 
@@ -157,6 +181,7 @@ const migrateUsers = async () => {
 
   for (const user of users) {
     let userChanged = false;
+    if (!user.profile) user.profile = {};
 
     const avatar = await getRenamedAsset({
       publicId: user.profilePicturePublicId,
@@ -219,7 +244,9 @@ const main = async () => {
   await connectToDatabase();
   getCloudinary();
 
-  const [posts, users, groups] = await Promise.all([migratePosts(), migrateUsers(), migrateGroups()]);
+  const posts = await migratePosts();
+  const users = await migrateUsers();
+  const groups = await migrateGroups();
 
   console.log(`Done. Changed records: posts=${posts}, users=${users}, groups=${groups}`);
   if (dryRun) {

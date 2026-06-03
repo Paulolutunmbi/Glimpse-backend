@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "migrate:media-filenames": "node scripts/migrate-media-filenames.js"
+    "migrate:media-filenames": "node scripts/migrate-media-filenames.js",
+    "test:media-naming": "node tests/mediaNaming.test.js"
   },
   "keywords": [],
   "author": "",
