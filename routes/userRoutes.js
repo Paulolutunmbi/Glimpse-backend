@@ -15,6 +15,8 @@ const {
   unsavePost,
   getProfileStats,
   getSavedMoments,
+  getFollowers,
+  getFollowing,
 } = require('../controllers/userController');
 const {
   getSettings,
@@ -35,6 +37,8 @@ router.get('/me', auth, getUserProfile);
 router.get('/u/:username', getUserProfileByUsername);
 router.get('/profile/:id', auth, getUserProfileById);
 router.get('/profile/:id/stats', auth, getProfileStats);
+router.get('/profile/:id/followers', auth, getFollowers);
+router.get('/profile/:id/following', auth, getFollowing);
 router.patch('/update', auth, updateProfile);
 router.put('/profile', auth, updateProfile);
 router.post('/follow/:id', auth, followUser);

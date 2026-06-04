@@ -951,6 +951,78 @@ const getUserProfileByUsername = async (req, res) => {
   }
 };
 
+const getFollowers = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await User.findById(id).populate({
+      path: 'followers',
+      select: 'name fullName username avatar profilePicture verified profile',
+    });
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const currentUser = await User.findById(req.userId).select('following');
+    const currentUserFollowing = currentUser?.following?.map(fId => String(fId)) || [];
+
+    const followersList = (user.followers || []).map(follower => {
+      const isFollowing = currentUserFollowing.includes(String(follower._id));
+      return {
+        _id: follower._id,
+        id: follower._id,
+        name: follower.name,
+        fullName: follower.fullName || follower.name,
+        username: follower.username || follower.name,
+        avatar: follower.profile?.avatar || follower.profilePicture || follower.avatar || '',
+        verified: Boolean(follower.verified),
+        isFollowing,
+      };
+    });
+
+    return res.status(200).json({ success: true, data: followersList });
+  } catch (err) {
+    console.error('Failed to get followers:', err);
+    return res.status(500).json({ success: false, message: 'Failed to retrieve followers' });
+  }
+};
+
+const getFollowing = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await User.findById(id).populate({
+      path: 'following',
+      select: 'name fullName username avatar profilePicture verified profile',
+    });
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const currentUser = await User.findById(req.userId).select('following');
+    const currentUserFollowing = currentUser?.following?.map(fId => String(fId)) || [];
+
+    const followingList = (user.following || []).map(followed => {
+      const isFollowing = currentUserFollowing.includes(String(followed._id));
+      return {
+        _id: followed._id,
+        id: followed._id,
+        name: followed.name,
+        fullName: followed.fullName || followed.name,
+        username: followed.username || followed.name,
+        avatar: followed.profile?.avatar || followed.profilePicture || followed.avatar || '',
+        verified: Boolean(followed.verified),
+        isFollowing,
+      };
+    });
+
+    return res.status(200).json({ success: true, data: followingList });
+  } catch (err) {
+    console.error('Failed to get following:', err);
+    return res.status(500).json({ success: false, message: 'Failed to retrieve following list' });
+  }
+};
+
 module.exports = {
   getUserProfile,
   getUserProfileById,
@@ -966,4 +1038,6 @@ module.exports = {
   getProfileStats,
   getSavedMoments,
   deleteAccount,
+  getFollowers,
+  getFollowing,
 };
